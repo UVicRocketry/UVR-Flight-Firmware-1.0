@@ -1,14 +1,14 @@
 // W25Q128.cpp
- 
+
 #include "W25Q128.hpp"
 
-W25Q128::W25Q128(PinName mosi, PinName miso, PinName sclk, PinName _cs) 
-: spi(mosi, miso, sclk), cs(_cs) 
+W25Q128::W25Q128(PinName mosi, PinName miso, PinName sclk, PinName _cs)
+: spi(mosi, miso, sclk), cs(_cs)
 {
 	spi.format(SPI_NBIT, SPI_MODE);
 	spi.frequency(SPI_FREQ);
 	cs_disable();
-} 
+}
 
 uint32_t W25Q128::get_id() {
 	cs_enable();
@@ -21,15 +21,15 @@ uint32_t W25Q128::get_id() {
 	return id;
 }
 
-bool W25Q128::push_page(const page &p) 
+bool W25Q128::push_page(const page &p)
 {
 	if (bytes_pushed >= NUM_BYTES)
 		return false;
-		
+
 	write_page(bytes_pushed,p);
-	
+
 	bytes_pushed += p.size();
-	
+
 	return true;
 }
 
@@ -37,7 +37,7 @@ int W25Q128::get_bytes_pushed() const
 {
 	return bytes_pushed;
 }
- 
+
 char W25Q128::read_byte(uint32_t addr) {
 	cs_enable();
 	spi.write(R_INST);
@@ -73,8 +73,8 @@ void W25Q128::read_page(uint32_t page_num, page &p) {
 		byte = spi.write(DUMMY_ADDR);
 	cs_disable();
 }
- 
-void W25Q128::write_byte(uint32_t addr, char data) 
+
+void W25Q128::write_byte(uint32_t addr, char data)
 {
 	while (is_busy())
 	{
@@ -96,7 +96,7 @@ void W25Q128::write_byte(uint32_t addr, char data)
 	}
 }
 
-void W25Q128::write_stream(uint32_t addr, char* buf, int count) 
+void W25Q128::write_stream(uint32_t addr, char* buf, int count)
 {
 	if (count < 1)
 		return;
@@ -123,7 +123,7 @@ void W25Q128::write_stream(uint32_t addr, char* buf, int count)
 	}
 }
 
-void W25Q128::write_page(uint32_t addr, const page &p) 
+void W25Q128::write_page(uint32_t addr, const page &p)
 {
 	while (is_busy())
 	{
@@ -136,10 +136,10 @@ void W25Q128::write_page(uint32_t addr, const page &p)
 	spi.write((addr & ADDR_BMASK2) >> ADDR_BSHIFT2);
 	spi.write((addr & ADDR_BMASK1) >> ADDR_BSHIFT1);
 	spi.write((addr & ADDR_BMASK0) >> ADDR_BSHIFT0);
-	
+
 	for (const auto & c : p)
 		spi.write(c);
-	
+
 	cs_disable();
 	write_disable();
 
@@ -148,8 +148,8 @@ void W25Q128::write_page(uint32_t addr, const page &p)
 		wait_us(5);
 	}
 }
- 
-void W25Q128::erase_chip() 
+
+void W25Q128::erase_chip()
 {
 	while (is_busy())
 	{
@@ -182,7 +182,7 @@ void W25Q128::erase_sector(uint32_t sector_num) {
 	spi.write((addr & ADDR_BMASK0) >> ADDR_BSHIFT0);
 	cs_disable();
 	write_disable();
-	
+
 	while (is_busy())
 	{
 		wait_ms(1);
@@ -197,8 +197,8 @@ bool W25Q128::is_busy()
 	char status = spi.write(0);
 	cs_disable();
 	return w_en_bitmask & status;
-}    
- 
+}
+
 void W25Q128::write_enable() {
 	cs_enable();
 	spi.write(WE_INST);

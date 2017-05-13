@@ -12,10 +12,10 @@
  *	To-do:
  *	- Finish implementing data queuing
  *	- Implement flight state machine
- *  - Fix BNO055 orientation setting - roll and pitch are currently swapped
- * 	- Implement BNO055 calibration routine if necessary
- *  - Finalize memory storage format - big or little endian???
- *  - Clean up global declarations. Consider making some local scope. Consider putting others in header files.
+ *	- Fix BNO055 orientation setting - roll and pitch are currently swapped
+ *	- Implement BNO055 calibration routine if necessary
+ *	- Finalize memory storage format - big or little endian???
+ *	- Clean up global declarations. Consider making some local scope. Consider putting others in header files.
  */
 
 #include "mbed.h"
@@ -41,7 +41,7 @@ auto i2c_p = new I2C(I2C_SDA,I2C_SCL);
 BMP280 env(i2c_p);
 int temperature, pressure;
 
-// 200g x/y/z accelerometer connected to analog input lines 
+// 200g x/y/z accelerometer connected to analog input lines
 ADXL377 high_g(A0,A1,A2);
 ADXL377_readings high_g_acc;
 
@@ -132,7 +132,7 @@ void rx_interrupt()
 				is_recording_data = false;
 			break;
 			default:
-			
+
 			break;
 		}
 	}
@@ -145,7 +145,7 @@ void push_int16_to_queue(int16_t d)
 	char outbox[2] = {0,0};
 
 	outbox[index] = d & 0xFF;
-	data_queue.push(outbox[index]);	
+	data_queue.push(outbox[index]);
 	index++;
 
 	outbox[index] = (d & 0xFF00) >> 8;
@@ -181,7 +181,7 @@ void push_int16_to_queue(int16_t d)
 	char outbox[2] = {0,0};
 
 	outbox[index] = (d & 0xFF00) >> 8;
-	data_queue.push(outbox[index]);	
+	data_queue.push(outbox[index]);
 	index++;
 
 	outbox[index] = d & 0x00FF;
@@ -234,7 +234,7 @@ void read_sensors()
 			data_queue.push(',');
 		}
 	}
-	
+
 	high_g.read(high_g_acc);
 	time_elapsed_ms = timer0.read_ms();
 	imu.get_quaternion(quaternion);
@@ -246,14 +246,14 @@ void read_sensors()
 		push_int32_to_queue(time_elapsed_ms);
 		push_int16_to_queue(low_g_acc.x);
 		push_int16_to_queue(low_g_acc.y);
-		push_int16_to_queue(low_g_acc.z);   
+		push_int16_to_queue(low_g_acc.z);
 		push_int16_to_queue(quaternion.w);
 		push_int16_to_queue(quaternion.x);
 		push_int16_to_queue(quaternion.y);
-		push_int16_to_queue(quaternion.z);   
+		push_int16_to_queue(quaternion.z);
 		data_queue.push(',');
 	}
-	
+
 	count++;
 	sensor_read_pending = false;
 }
@@ -268,7 +268,7 @@ void process_data_queue()
 			c = data_queue.front();
 			data_queue.pop();
 		}
-		flash.push_page(new_page);	
+		flash.push_page(new_page);
 	}
 }
 
@@ -284,35 +284,35 @@ void transmit_test_outputs()
 	transmit_int32(pc,time_elapsed_ms);
 	transmit_int16(pc,low_g_acc.x);
 	transmit_int16(pc,low_g_acc.y);
-	transmit_int16(pc,low_g_acc.z);   
+	transmit_int16(pc,low_g_acc.z);
 	transmit_int16(pc,quaternion.w);
 	transmit_int16(pc,quaternion.x);
 	transmit_int16(pc,quaternion.y);
-	transmit_int16(pc,quaternion.z);   
+	transmit_int16(pc,quaternion.z);
 	pc.putc(',');
 
-	pc.putc('h');    
+	pc.putc('h');
 	transmit_int16(pc,high_g_acc.x);
 	transmit_int16(pc,high_g_acc.y);
 	transmit_int16(pc,high_g_acc.z);
 	pc.putc(',');
-	
+
 	pc.putc('m');
 	transmit_int32(pc,flash.get_bytes_pushed());
-	pc.putc(',');	
+	pc.putc(',');
 }
 
-int main() 
+int main()
 {
 	// rocket flight states
 	enum state {STARTUP,DEBUG,IDLE,INIT_FLIGHT,PAD,FLIGHT,LANDED};
 	state flight_state = STARTUP;
 
 	buzzer.set_duty(0.5);
-	
+
 	debug_jumper.mode(PullDown);
 	hall_effect_input.mode(PullDown);
-	
+
 	// enable 100Hz sensor sampling interrupt
 	ticker0.attach(&data_tick,TICKER_DELAY);
 
@@ -320,34 +320,34 @@ int main()
 	bool hall_effect_detected = false;
 	// duration timer to see if hall effect sensor is active for sufficient duration
 	Timer hall_effect_timer;
-	
+
 	while(1)
 	{
 		wait_us(1);
-		
+
 		switch (flight_state)
-		{ 
+		{
 			case STARTUP:
 			// board init procedure. will start here after board reset. goto DEBUG is debug jumper set, else goto IDLE
 			{
-				
+
 				// if debug jumper is set, then immediately transition to the board debug mode
 				if (debug_jumper.read())
 				{
 					flight_state = DEBUG;
-					
+
 					// debug mode indicator light
 					led0 = 1;
-					
+
 					// remove this erase_sector() for actual firmware!
 					flash.erase_sector(0);
-					
+
 					// enable serial instruction tokens from PC
-					pc.attach(&rx_interrupt,Serial::RxIrq);		
+					pc.attach(&rx_interrupt,Serial::RxIrq);
 
 					// start time-stamp clock
 					timer0.reset();
-					timer0.start();					
+					timer0.start();
 				}
 				else
 				{
@@ -373,7 +373,7 @@ int main()
 				{
 					transmit_test_outputs();
 				}
-				
+
 				// if board is currently set to record data, then do so
 				if (is_recording_data)
 					process_data_queue();
@@ -415,23 +415,23 @@ int main()
 			case PAD:
 			// wait for pressure (altitude) change or z-axis g-force indicative of launch then goto FLIGHT
 			{
-				//state code goes here				
+				//state code goes here
 			}
 			break;
 			case FLIGHT:
-			//  start logging data. goto LANDED if (1) sensors indicate landing or (2) second last page of memory filled
+			//	start logging data. goto LANDED if (1) sensors indicate landing or (2) second last page of memory filled
 			{
-				//state code goes here				
+				//state code goes here
 			}
 			break;
 			case LANDED:
 			// stop logging data. shutoff all UV diodes and log time of shutoff.
 			{
-				//state code goes here				
+				//state code goes here
 			}
 			break;
 			default:
-			{}	
+			{}
 			// code should *never* reach this block
 		}
 	}
