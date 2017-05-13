@@ -10,10 +10,12 @@
  *	Written for UVic Rocketry
  *
  *	To-do:
- *	- Finish implementing data queuing 
+ *	- Finish implementing data queuing
  *	- Implement flight state machine
- *  - Fix BNO055 orientation setting
- * 	- Convert serial transmission format to big-endian?
+ *  - Fix BNO055 orientation setting - roll and pitch are currently swapped
+ * 	- Implement BNO055 calibration routine if necessary
+ *  - Finalize memory storage format - big or little endian???
+ *  - Clean up global declarations. Consider making some local scope. Consider putting others in header files.
  */
 
 #include "mbed.h"
@@ -27,6 +29,7 @@
 #include <queue>
 
 #define TICKER_DELAY 0.01
+#define HALL_EFFECT_DURATION_MS 2000
 
 // serial connection to PC. used to recieve data from and send instructions to board
 Serial pc(USBTX, USBRX,115200);
@@ -53,11 +56,20 @@ W25Q128 flash(D11,D12,D13,D10);
 // Debug LED
 DigitalOut led0(D2);
 
+// Debug mode jumper
+DigitalIn debug_jumper(D7);
+
+// Hall-effect sensor input
+DigitalIn hall_effect_input(D4);
+
+// Buzzer output
+PwmDriver buzzer(D9);
+
 // Interrupt timer used for data time-stamping
 Timer timer0;
 int time_elapsed_ms;
 
-// 10ms interrupt timer
+// 100Hz interrupt timer
 Ticker ticker0;
 
 // Used to store sensor data values before storing them in flash memory
@@ -69,9 +81,6 @@ bool is_sending_data_to_pc = false;
 bool is_recording_data = false;
 // has ticker signalled a pending sensor sampling?
 bool sensor_read_pending = false;
-
-// rocket flight states
-enum state {STARTUP,DEBUG,IDLE,INIT_FLIGHT,PAD,FLIGHT,LANDED};
 
 // send raw contents of W25Q128 flash memory to PC over serial
 void transmit_recorded_data(unsigned int num_pages = W25Q128::NUM_PAGES)
@@ -98,7 +107,7 @@ void transmit_recorded_data(unsigned int num_pages = W25Q128::NUM_PAGES)
 	led0 = 1;
 }
 
-// handle serial instruction characters sent from PC to NUCLEO
+// ISR to handle instruction tokens sent from PC to NUCLEO
 void rx_interrupt()
 {
 	while (pc.readable())
@@ -165,7 +174,6 @@ void push_int32_to_queue(int32_t d)
 	data_queue.push(outbox[index]);
 }
 */
-
 void push_int16_to_queue(int16_t d)
 {
 	// big endian
@@ -250,7 +258,7 @@ void read_sensors()
 	sensor_read_pending = false;
 }
 
-void process_queue()
+void process_data_queue()
 {
 	if (data_queue.size() >= PAGE_SIZE)
 	{
@@ -296,36 +304,136 @@ void transmit_test_outputs()
 
 int main() 
 {
-	flash.erase_sector(0);
-    led0 = 1;
-    env.initialize();
-    imu.set_mounting_position(MT_P4);
+	// rocket flight states
+	enum state {STARTUP,DEBUG,IDLE,INIT_FLIGHT,PAD,FLIGHT,LANDED};
+	state flight_state = STARTUP;
+
+	buzzer.set_duty(0.5);
 	
-	pc.attach(&rx_interrupt,Serial::RxIrq);
+	debug_jumper.mode(PullDown);
+	hall_effect_input.mode(PullDown);
 	
-	timer0.reset();
-	timer0.start();
-	
+	// enable 100Hz sensor sampling interrupt
 	ticker0.attach(&data_tick,TICKER_DELAY);
+
+	// polling flag used to check if hall effect sensor has been tripped
+	bool hall_effect_detected = false;
+	// duration timer to see if hall effect sensor is active for sufficient duration
+	Timer hall_effect_timer;
 	
 	while(1)
 	{
-		if (sensor_read_pending)
-		{
-			read_sensors();
-		}
-
-		if (is_sending_data_to_pc)
-		{
-			transmit_recorded_data();
-			is_sending_data_to_pc = false;
-		}
-		else
-		{
-			transmit_test_outputs();
-			wait_ms(1);
-		}
+		wait_us(1);
 		
-		process_queue();
+		switch (flight_state)
+		{ 
+			case STARTUP:
+			// board init procedure. will start here after board reset. goto DEBUG is debug jumper set, else goto IDLE
+			{
+				
+				// if debug jumper is set, then immediately transition to the board debug mode
+				if (debug_jumper.read())
+				{
+					flight_state = DEBUG;
+					
+					// debug mode indicator light
+					led0 = 1;
+					
+					// remove this erase_sector() for actual firmware!
+					flash.erase_sector(0);
+					
+					// enable serial instruction tokens from PC
+					pc.attach(&rx_interrupt,Serial::RxIrq);		
+
+					// start time-stamp clock
+					timer0.reset();
+					timer0.start();					
+				}
+				else
+				{
+					flight_state = IDLE;
+				}
+			}
+			break;
+			case DEBUG:
+			// output sensor test values over serial and wait for PC instructions. no state transitions here
+			{
+				// if sensor read flag is set by ticker ISR, then read the sensors
+				if (sensor_read_pending)
+					read_sensors();
+
+				// if board is currently set to upload memory contents to PC, then do so
+				if (is_sending_data_to_pc)
+				{
+					transmit_recorded_data();
+					is_sending_data_to_pc = false;
+				}
+				// else keep transmitting sensor test values
+				else
+				{
+					transmit_test_outputs();
+				}
+				
+				// if board is currently set to record data, then do so
+				if (is_recording_data)
+					process_data_queue();
+			}
+			break;
+			case IDLE:
+			// start of non-debug sequence. wait for Hall-effect sensor to trip for set duration, then goto INIT_FLIGHT
+			{
+				if (hall_effect_input.read())
+				{
+					// if hall effect just detected, then start duration timer
+					if (!hall_effect_detected)
+					{
+						hall_effect_detected = true;
+						hall_effect_timer.reset();
+						hall_effect_timer.start();
+					}
+					// if hall effect persists from last function call, then check to see if has lasted for set duration
+					else
+						// if hall effect detected for set duration or longer, then transition to INIT_FLIGHT
+						if (hall_effect_timer.read_ms() >= HALL_EFFECT_DURATION_MS)
+						{
+							hall_effect_timer.stop();
+							buzzer.turn_on();
+							flight_state = INIT_FLIGHT;
+						}
+				}
+				// if hall effect doesn't persist for duration, then clear polling flag
+				else
+					hall_effect_detected = false;
+			}
+			break;
+			case INIT_FLIGHT:
+			// initialize board, sensors, and memory for flight. then goto PAD
+			{
+				//state code goes here
+			}
+			break;
+			case PAD:
+			// wait for pressure (altitude) change or z-axis g-force indicative of launch then goto FLIGHT
+			{
+				//state code goes here				
+			}
+			break;
+			case FLIGHT:
+			//  start logging data. goto LANDED if (1) sensors indicate landing or (2) second last page of memory filled
+			{
+				//state code goes here				
+			}
+			break;
+			case LANDED:
+			// stop logging data. shutoff all UV diodes and log time of shutoff.
+			{
+				//state code goes here				
+			}
+			break;
+			default:
+			{}	
+			// code should *never* reach this block
+		}
 	}
+	return 0;
 }
