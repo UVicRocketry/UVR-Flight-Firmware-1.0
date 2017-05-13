@@ -321,6 +321,8 @@ int main()
 	// duration timer to see if hall effect sensor is active for sufficient duration
 	Timer hall_effect_timer;
 
+	env.initialize();
+	
 	while(1)
 	{
 		wait_us(1);
