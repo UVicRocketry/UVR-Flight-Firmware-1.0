@@ -2,21 +2,17 @@
  *	PwmDriver library
  *
  *	@author	 Andres Martinez
- *	@version 0.9b
+ *	@version 0.9c
  *	@date	 14-Mar-2017
  *
- *	Subclass of MBED PwmOut. Used to safely manage PwmOut API calls with
+ *	Wrapper class used to safely manage PwmOut API calls with
  *	duty cycle presets and defined on/off states. PwmOut.write(float) is only
  *	invoked for non-zero values when driver is set to the "on" state. Signals
  *	are deactivated in the destructor
  *
- *	Using PwmOut and PwmDriver for the same pin(s) is NOT supported - doing so will
- *	negate the state checking features of PwmDriver. Use one or the other!
+ *	Assignment of multiple PwmDriver objects to a given pin is not supported. Doing so 
+ *	will negate the state checking features of PwmDriver. 
  *
- *	To-do:
- *		- Track pins already controlled by a PwmDriver object and
- *		  throw an error() if users try to attach multiple drivers
- *		  to a single pin.
  */
 
 #include "mbed.h"
@@ -24,7 +20,7 @@
 #ifndef PWMDRIVER_H
 #define PWMDRIVER_H
 
-class PwmDriver : private PwmOut
+class PwmDriver
 {
 	public:
 
@@ -33,23 +29,23 @@ class PwmDriver : private PwmOut
 	*	so will attach multiple drivers to a pin
 	*/
 	PwmDriver(PinName _pin, int _period_ms = 1)
-	: PwmOut(_pin),duty(0.0),on(false),pin(_pin)
+	: duty(0.0),on(false),pin(_pin),pwm(pin)
 	{
-		period_ms(_period_ms);
-		write(0.0);
+		pwm.period_ms(_period_ms);
+		pwm.write(0.0);
 	}
 
 	void turn_on()
 	{
 		if (!on) // if LED already on, avoids un-necessary write
-			write(duty);
+			pwm.write(duty);
 		on = true;
 	}
 
 	void turn_off()
 	{
 		on = false;
-		write(0.0);
+		pwm.write(0.0);
 	}
 
 	/*
@@ -67,7 +63,7 @@ class PwmDriver : private PwmOut
 			duty = _duty;
 
 		if (on) //update duty if pwm already running
-			write(duty);
+			pwm.write(duty);
 	}
 
 	float get_duty() const
@@ -78,7 +74,7 @@ class PwmDriver : private PwmOut
 	// find the actual duty cycle value stored in the board
 	float get_api_duty()
 	{
-		return read();
+		return pwm.read();
 	}
 
 	bool is_on() const
@@ -98,18 +94,16 @@ class PwmDriver : private PwmOut
 		turn_off();
 	}
 
-	PwmDriver(const PwmDriver& other) = delete; // pwm copy not supported
+	PwmDriver() = delete;
+	PwmDriver(const PwmDriver& other) = delete;
 	PwmDriver& operator=(const PwmDriver& other) = delete;
-	PwmDriver(PwmDriver&& other)
-	: PwmOut(other),duty(other.duty),on(other.on),pin(other.pin)
-	{}
 
 	private:
 
 	float duty;
 	bool on;
 	PinName pin;
-	PwmDriver();
+	PwmOut pwm;
 };
 
 #endif

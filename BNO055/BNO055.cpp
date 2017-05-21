@@ -10,8 +10,9 @@ BNO055::BNO055 (I2C* _i2c_p, PinName p_interrupt, uint8_t addr, uint8_t mode) :
 	initialize ();
 }
 
+/*
 /////////////// Read data & normalize /////////////////////
-void BNO055::get_Euler_Angles(BNO055_EULER_TypeDef *el)
+void BNO055::get_Euler_Angles(BNO055_EULER *el)
 {
 	uint8_t deg_or_rad;
 	int16_t h,p,r;
@@ -42,7 +43,7 @@ void BNO055::get_Euler_Angles(BNO055_EULER_TypeDef *el)
 	}
 }
 
-void BNO055::get_Euler_Angles_short(BNO055_EULER_short_TypeDef *els)
+void BNO055::get_Euler_Angles_short(BNO055_EULER_short *els)
 {
 	select_page(0);
 	dt[0] = BNO055_UNIT_SEL;
@@ -55,9 +56,9 @@ void BNO055::get_Euler_Angles_short(BNO055_EULER_short_TypeDef *els)
 	els->p = dt[3] << 8 | dt[2];
 	els->r = dt[5] << 8 | dt[4];
 }
+*/
 
-
-void BNO055::get_quaternion(BNO055_QUATERNION_TypeDef &qua)
+void BNO055::get_quaternion(BNO055_QUATERNION &qua)
 {
 	select_page(0);
 	dt[0] = BNO055_QUATERNION_W_LSB;
@@ -69,7 +70,7 @@ void BNO055::get_quaternion(BNO055_QUATERNION_TypeDef &qua)
 	qua.z = dt[7] << 8 | dt[6];
 }
 
-void BNO055::get_accel_short(BNO055_ACC_short_TypeDef &as)
+void BNO055::get_accel_short(BNO055_ACC_short &as)
 {
 	select_page(0);
 	dt[0] = BNO055_UNIT_SEL;
@@ -84,7 +85,7 @@ void BNO055::get_accel_short(BNO055_ACC_short_TypeDef &as)
 	as.z = dt[5] << 8 | dt[4];
 }
 
-void BNO055::get_linear_accel(BNO055_LIN_ACC_TypeDef *la)
+void BNO055::get_linear_accel(BNO055_LIN_ACC &la)
 {
 	uint8_t ms2_or_mg;
 	int16_t x,y,z;
@@ -105,17 +106,17 @@ void BNO055::get_linear_accel(BNO055_LIN_ACC_TypeDef *la)
 	y = dt[3] << 8 | dt[2];
 	z = dt[5] << 8 | dt[4];
 	if (ms2_or_mg) {
-		la->x = (double)x;
-		la->y = (double)y;
-		la->z = (double)z;
+		la.x = (double)x;
+		la.y = (double)y;
+		la.z = (double)z;
 	} else {
-		la->x = (double)x / 100;
-		la->y = (double)y / 100;
-		la->z = (double)z / 100;
+		la.x = (double)x / 100;
+		la.y = (double)y / 100;
+		la.z = (double)z / 100;
 	}
 }
 
-void BNO055::get_linear_accel_short(BNO055_LIN_ACC_short_TypeDef *las)
+void BNO055::get_linear_accel_short(BNO055_LIN_ACC_short &las)
 {
 	select_page(0);
 	dt[0] = BNO055_UNIT_SEL;
@@ -125,12 +126,12 @@ void BNO055::get_linear_accel_short(BNO055_LIN_ACC_short_TypeDef *las)
 	dt[0] = BNO055_LINEAR_ACC_X_LSB;
 	i2c_p->write(chip_addr, dt, 1, true);
 	i2c_p->read(chip_addr, dt, 6, false);
-	las->x = dt[1] << 8 | dt[0];
-	las->y = dt[3] << 8 | dt[2];
-	las->z = dt[5] << 8 | dt[4];
+	las.x = dt[1] << 8 | dt[0];
+	las.y = dt[3] << 8 | dt[2];
+	las.z = dt[5] << 8 | dt[4];
 }
 
-void BNO055::get_gravity(BNO055_GRAVITY_TypeDef *gr)
+void BNO055::get_gravity(BNO055_GRAVITY &gr)
 {
 	uint8_t ms2_or_mg;
 	int16_t x,y,z;
@@ -151,19 +152,18 @@ void BNO055::get_gravity(BNO055_GRAVITY_TypeDef *gr)
 	y = dt[3] << 8 | dt[2];
 	z = dt[5] << 8 | dt[4];
 	if (ms2_or_mg) {
-		gr->x = (double)x;
-		gr->y = (double)y;
-		gr->z = (double)z;
+		gr.x = (double)x;
+		gr.y = (double)y;
+		gr.z = (double)z;
 	} else {
-		gr->x = (double)x / 100;
-		gr->y = (double)y / 100;
-		gr->z = (double)z / 100;
+		gr.x = (double)x / 100;
+		gr.y = (double)y / 100;
+		gr.z = (double)z / 100;
 	}
 }
 
-void BNO055::get_gravity_short(BNO055_GRAVITY_short_TypeDef *gr)
+void BNO055::get_gravity_short(BNO055_GRAVITY_short &gr)
 {
-
 	select_page(0);
 	dt[0] = BNO055_UNIT_SEL;
 	i2c_p->write(chip_addr, dt, 1, true);
@@ -172,12 +172,13 @@ void BNO055::get_gravity_short(BNO055_GRAVITY_short_TypeDef *gr)
 	dt[0] = BNO055_GRAVITY_X_LSB;
 	i2c_p->write(chip_addr, dt, 1, true);
 	i2c_p->read(chip_addr, dt, 6, false);
-	gr->x = dt[1] << 8 | dt[0];
-	gr->y = dt[3] << 8 | dt[2];
-	gr->z = dt[5] << 8 | dt[4];
+	gr.x = dt[1] << 8 | dt[0];
+	gr.y = dt[3] << 8 | dt[2];
+	gr.z = dt[5] << 8 | dt[4];
 }
 
-void BNO055::get_chip_temperature(BNO055_TEMPERATURE_TypeDef *tmp)
+/*
+void BNO055::get_chip_temperature(BNO055_TEMPERATURE &tmp)
 {
 	uint8_t c_or_f;
 
@@ -198,9 +199,9 @@ void BNO055::get_chip_temperature(BNO055_TEMPERATURE_TypeDef *tmp)
 	i2c_p->write(chip_addr, dt, 1, true);
 	i2c_p->read(chip_addr, dt, 1, false);
 	if (c_or_f) {
-		tmp->acc_chip = (int8_t)dt[0] * 2;
+		tmp.acc_chip = (int8_t)dt[0] * 2;
 	} else {
-		tmp->acc_chip = (int8_t)dt[0];
+		tmp.acc_chip = (int8_t)dt[0];
 	}
 	dt[0] = BNO055_TEMP_SOURCE;
 	dt[1] = 1;
@@ -210,11 +211,12 @@ void BNO055::get_chip_temperature(BNO055_TEMPERATURE_TypeDef *tmp)
 	i2c_p->write(chip_addr, dt, 1, true);
 	i2c_p->read(chip_addr, dt, 1, false);
 	if (c_or_f) {
-		tmp->gyr_chip = (int8_t)dt[0] * 2;
+		tmp.gyr_chip = (int8_t)dt[0] * 2;
 	} else {
-		tmp->gyr_chip = (int8_t)dt[0];
+		tmp.gyr_chip = (int8_t)dt[0];
 	}
 }
+*/
 
 /////////////// Initialize ////////////////////////////////
 void BNO055::initialize (void)
@@ -324,14 +326,14 @@ void BNO055::check_id(void)
 	sw_rev_id = dt[6];
 }
 
-void BNO055::read_id_inf(BNO055_ID_INF_TypeDef *id)
+void BNO055::read_id_inf(BNO055_ID_INF &id)
 {
-	id->chip_id = chip_id;
-	id->acc_id = acc_id;
-	id->mag_id = mag_id;
-	id->gyr_id = gyr_id;
-	id->bootldr_rev_id = bootldr_rev_id;
-	id->sw_rev_id = sw_rev_id;
+	id.chip_id = chip_id;
+	id.acc_id = acc_id;
+	id.mag_id = mag_id;
+	id.gyr_id = gyr_id;
+	id.bootldr_rev_id = bootldr_rev_id;
+	id.sw_rev_id = sw_rev_id;
 }
 
 /////////////// Check chip ready or not	 //////////////////

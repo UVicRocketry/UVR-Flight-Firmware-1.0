@@ -13,43 +13,29 @@
  *
  */
 
-#ifndef MBED_BMP280_H
-#define MBED_BMP280_H
+#ifndef BMP280_H
+#define BMP280_H
 
 #include "mbed.h"
 
 #define DEFAULT_SLAVE_ADDRESS (0x77 << 1)
 
 
-/** BME280 class
- *
- *	BME280: A library to correct environmental data using Boshe BME280 device
- *
- *	BME280 is an environmental sensor
- *	@endcode
- */
-
 class BMP280
 {
 public:
 
-	/** Create a BME280 instance
+	/** Create a BMP280 instance
 	 *	which is connected to specified I2C pins with specified address
 	 *
 	 * @param i2c_obj I2C object (instance)
-	 * @param slave_adr (option) I2C-bus address (default: 0x76)
+	 * @param slave_adr (option) I2C-bus address (default: 0x77)
 	 */
 	BMP280(I2C* _i2c_p, char slave_adr = DEFAULT_SLAVE_ADDRESS);
 
-	/** Destructor of BME280
-	 */
 	virtual ~BMP280();
 
-	/** Initializa BME280 sensor
-	 *
-	 *	Configure sensor setting and read parameters for calibration
-	 *
-	 */
+	// Initializa BMP280 sensor
 	void initialize(void);
 
 	// read current pressure in Pascals
@@ -72,4 +58,4 @@ private:
 
 };
 
-#endif // MBED_BME280_H
+#endif

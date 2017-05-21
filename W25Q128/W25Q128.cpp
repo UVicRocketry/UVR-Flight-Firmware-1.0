@@ -166,6 +166,7 @@ void W25Q128::erase_chip()
 	{
 		wait_ms(1000);
 	}
+	bytes_pushed = 0;
 }
 
 void W25Q128::erase_sector(uint32_t sector_num) {

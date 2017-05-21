@@ -56,7 +56,6 @@ public:
 
 	char read_byte(uint32_t addr);
 	void read_page(uint32_t page_num, page &p);
-	void read_stream(uint32_t addr, char* buf, int count);
 
 	bool push_page(const page &p);
 
@@ -82,7 +81,8 @@ public:
 	void write_byte(uint32_t addr, char data);
 	void write_page(uint32_t addr, const page &p);
 	void write_stream(uint32_t addr, char* buf, int count);
-
+	void read_stream(uint32_t addr, char* buf, int count);
+	
 	void write_enable();
 	void write_disable();
 	void cs_enable();									   // chip enable

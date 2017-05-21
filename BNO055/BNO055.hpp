@@ -80,61 +80,61 @@ typedef struct {
 	uint8_t	 gyr_id;
 	uint8_t	 bootldr_rev_id;
 	uint16_t sw_rev_id;
-} BNO055_ID_INF_TypeDef;
+} BNO055_ID_INF;
 
 typedef struct {
 	double h;
 	double r;
 	double p;
-} BNO055_EULER_TypeDef;
+} BNO055_EULER;
 
 typedef struct {
 	int16_t h;
 	int16_t r;
 	int16_t p;
-} BNO055_EULER_short_TypeDef;
+} BNO055_EULER_short;
 
 typedef struct {
 	int16_t x;
 	int16_t y;
 	int16_t z;
 	int16_t w;
-} BNO055_QUATERNION_TypeDef;
+} BNO055_QUATERNION;
 
 typedef struct {
 	double x;
 	double y;
 	double z;
-} BNO055_LIN_ACC_TypeDef;
+} BNO055_LIN_ACC;
 
 typedef struct {
 	int16_t x;
 	int16_t y;
 	int16_t z;
-} BNO055_ACC_short_TypeDef;
+} BNO055_ACC_short;
 
 typedef struct {
 	int16_t x;
 	int16_t y;
 	int16_t z;
-} BNO055_LIN_ACC_short_TypeDef;
+} BNO055_LIN_ACC_short;
 
 typedef struct {
 	double x;
 	double y;
 	double z;
-} BNO055_GRAVITY_TypeDef;
+} BNO055_GRAVITY;
 
 typedef struct {
 	int16_t x;
 	int16_t y;
 	int16_t z;
-} BNO055_GRAVITY_short_TypeDef;
+} BNO055_GRAVITY_short;
 
 typedef struct {
 	int8_t acc_chip;
 	int8_t gyr_chip;
-} BNO055_TEMPERATURE_TypeDef;
+} BNO055_TEMPERATURE;
 
 enum {MT_P0 = 0, MT_P1, MT_P2, MT_P3, MT_P4, MT_P5, MT_P6, MT_P7};
 
@@ -151,33 +151,33 @@ public:
 	/** Get Euler Angles
 	 * @param double type of 3D data address
 	 */
-	void get_Euler_Angles(BNO055_EULER_TypeDef *el);
-	void get_Euler_Angles_short(BNO055_EULER_short_TypeDef *els);
+	//void get_Euler_Angles(BNO055_EULER_INF *el);
+	//void get_Euler_Angles_short(BNO055_EULER_short *els);
 	/** Get Quaternion XYZ&W
 	 * @param int16_t type of 4D data address
 	 */
-	void get_quaternion(BNO055_QUATERNION_TypeDef &qua);
+	void get_quaternion(BNO055_QUATERNION &qua);
 
 	// Get accel data (with gravity)
-	void get_accel_short(BNO055_ACC_short_TypeDef &as);
+	void get_accel_short(BNO055_ACC_short &as);
 
 
 	/** Get Linear accel data
 	 * @param double type of 3D data address
 	 */
-	void get_linear_accel(BNO055_LIN_ACC_TypeDef *la);
-	void get_linear_accel_short(BNO055_LIN_ACC_short_TypeDef *las);
+	void get_linear_accel(BNO055_LIN_ACC &la);
+	void get_linear_accel_short(BNO055_LIN_ACC_short &las);
 
 	/** Get Gravity data
 	 * @param double type of 3D data address
 	 */
-	void get_gravity(BNO055_GRAVITY_TypeDef *gr);
-	void get_gravity_short(BNO055_GRAVITY_short_TypeDef *grs);
+	void get_gravity(BNO055_GRAVITY &gr);
+	void get_gravity_short(BNO055_GRAVITY_short &grs);
 
 	/** Get Chip temperature data both Acc & Gyro
 	 * @param int8_t type of data address
 	 */
-	void get_chip_temperature(BNO055_TEMPERATURE_TypeDef *tmp);
+	//void get_chip_temperature(BNO055_TEMPERATURE &tmp);
 
 	/** Change fusion mode
 	  * @param fusion mode
@@ -197,7 +197,7 @@ public:
 	  * @param ID information address
 	  * @return none
 	  */
-	void read_id_inf(BNO055_ID_INF_TypeDef *id);
+	void read_id_inf(BNO055_ID_INF &id);
 
 	/** Check chip is avairable or not
 	  * @param none
