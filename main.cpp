@@ -7,20 +7,18 @@
  *
  *	Flight firmware for payload sensors and UV experiment
  *
- * Written for UVic Rocketry
+ *	Written for UVic Rocketry
  *
  *	To-do:
  *	- Finish implementing data queuing
  *	- Implement flight state machine
- *	- Fix BNO055 orientation setting - roll and pitch are currently swapped
  *	- Implement BNO055 calibration routine if necessary
  *	- Finalize memory storage format - big or little endian???
  *	- Clean up global declarations. Consider making some local scope. Consider putting others in header files.
- *  - Verify sign and compaison expressioon of z-axis acceleration threshold
+ *	- Verify comparison expression of z-axis acceleration threshold
  */
 
 #include "mbed.h"
-#include "transmit_serial.hpp"
 #include "BMP280.hpp"
 #include "ADXL377.hpp"
 #include "BNO055.hpp"
@@ -33,7 +31,7 @@
 #define LITTLE_ENDIAN_STORAGE 0
 
 constexpr int HALL_EFFECT_TRIGGER_DURATION_MS{2000};
-constexpr float LAUNCH_Z_ACC_THRESHOLD_MPSQ{20.0};
+constexpr float LAUNCH_Z_ACC_THRESHOLD_MPSQ{9.81 * 3};
 constexpr int LAUNCH_Z_ACC_DURATION_MS{2000};
 
 // multiply this value by the referene pressurce to get the pressure at the alititude threashold
@@ -56,6 +54,7 @@ ADXL377_readings high_g_acc;
 
 // 16g accelerometer and orientation sensor
 BNO055 imu(i2c_p,NC);
+constexpr int BNO055_MOUNTING_POSITION{MT_P0};
 BNO055_QUATERNION quaternion;
 BNO055_ACC_short low_g_acc;
 
@@ -77,6 +76,7 @@ PwmDriver buzzer(D9);
 // Interrupt timer used for data time-stamping
 Timer time_stamp;
 int time_elapsed_ms;
+int sensor_read_delay_us;
 
 // 100Hz interrupt timer
 Ticker ticker_100_Hz;
@@ -94,13 +94,33 @@ bool is_erasing_memory{false};
 // has ticker signalled a pending sensor sampling?
 bool sensor_read_pending{false};
 
+// transmit a variable over a serial connection as a series of bytes
+template <typename T> void transmit_var(Serial &pc, T d)
+{
+	char byte_size = sizeof(d);
+	for (int i = 0; i < byte_size; i++)
+		pc.putc((d & ( 0xFF << i*8)) >> i*8); 
+}
+
+// push a variable to the data queue as a series of bytes (endianess set by LITTLE_ENDIAN_STORAGE 0 or 1)
+template <typename T> void push_to_queue(T d)
+{
+	int byte_size = sizeof(d);
+	#if LITTLE_ENDIAN_STORAGE
+	for (int i = 0; i < byte_size; i++)
+	#else
+	for (int i = byte_size; i >= 0; i--)
+	#endif
+		data_queue.push((d & ( 0xFF << i*8)) >> i*8); 
+}
+
 // send raw contents of W25Q128 flash memory to PC over serial
 void transmit_recorded_data(unsigned int num_pages = W25Q128::NUM_PAGES)
 {
 	led0 = 0;
 	// signal pc that board is now uploading data
 	pc.putc('d');
-	transmit_int16(pc,0);
+	pc.putc(0);
 	pc.putc(',');
 	wait_ms(1000);
 
@@ -156,36 +176,6 @@ void rx_interrupt()
 	}
 }
 
-void push_int16_to_queue(int16_t d)
-{
-	#if LITTLE_ENDIAN_STORAGE
-	data_queue.push(d & 0xFF);
-	data_queue.push((d & 0xFF00) >> 8);
-
-	#else
-	data_queue.push((d & 0xFF00) >> 8);
-	data_queue.push(d & 0xFF);	
-
-	#endif
-}
-
-void push_int32_to_queue(int32_t d)
-{
-	#if LITTLE_ENDIAN_STORAGE
-	data_queue.push(d & 0xFF);
-	data_queue.push((d & 0xFF00) >> 8);
-	data_queue.push((d & 0xFF0000) >> 16);
-	data_queue.push((d & 0xFF000000) >> 24);
-	
-	#else
-	data_queue.push((d & 0xFF000000) >> 24);		
-	data_queue.push((d & 0xFF0000) >> 16);
-	data_queue.push((d & 0xFF00) >> 8);
-	data_queue.push(d & 0xFF);
-	
-	#endif
-}
-
 void data_tick()
 {
 	sensor_read_pending = true;
@@ -193,44 +183,57 @@ void data_tick()
 
 void read_sensors()
 {
+	bool record_env_readings{false};
+	char data_header = 'k';
+	
 	time_elapsed_ms = time_stamp.read_ms();
+	sensor_read_delay_us = time_stamp.read_us();
+	
+	imu.get_quaternion(quaternion);
+	imu.get_accel_short(low_g_acc);
+	
+	high_g.read(high_g_acc);
 	
 	// log environmental sensors at slower rate
 	static int count{0};
 	if (count >= 100)
 	{
-		count = 0;
 		temperature = env.getTemperature();
 		pressure = env.getPressure();
-		if (is_recording_data)
-		{
-			data_queue.push('e');
-			push_int32_to_queue(time_elapsed_ms);
-			push_int32_to_queue(temperature);
-			push_int32_to_queue(pressure);
-			data_queue.push(',');
-		}
-	}
 
-	high_g.read(high_g_acc);
-	imu.get_quaternion(quaternion);
-	imu.get_accel_short(low_g_acc);
+		count = 0;
 
+		record_env_readings = true;
+		data_header = 'e';
+	}	
+	else
+		count++;
+	
+	sensor_read_delay_us = time_stamp.read_us() - sensor_read_delay_us;
+	
 	if (is_recording_data)
 	{
-		data_queue.push('k');
-		push_int32_to_queue(time_elapsed_ms);
-		push_int16_to_queue(low_g_acc.x);
-		push_int16_to_queue(low_g_acc.y);
-		push_int16_to_queue(low_g_acc.z);
-		push_int16_to_queue(quaternion.w);
-		push_int16_to_queue(quaternion.x);
-		push_int16_to_queue(quaternion.y);
-		push_int16_to_queue(quaternion.z);
+		data_queue.push(data_header);
+		push_to_queue(time_elapsed_ms);
+
+		push_to_queue(low_g_acc.x);
+		push_to_queue(low_g_acc.y);
+		push_to_queue(low_g_acc.z);
+		
+		push_to_queue(quaternion.w);
+		push_to_queue(quaternion.x);
+		push_to_queue(quaternion.y);
+		push_to_queue(quaternion.z);
+		
+		if (record_env_readings)
+		{
+			push_to_queue(temperature);
+			push_to_queue(pressure);
+		}
+		
 		data_queue.push(',');
 	}
 
-	count++;
 	// reset sensor read flag
 	sensor_read_pending = false;
 }
@@ -251,33 +254,29 @@ void process_data_queue()
 
 // transmit sensor data packets to be read as input for the UVR-Sensor-Display utility program
 void transmit_test_outputs()
-{
+{	
 	pc.putc('e');
-	transmit_int32(pc,time_elapsed_ms);
-	transmit_int32(pc,temperature);
-	transmit_int32(pc,pressure);
+	transmit_var(pc,time_elapsed_ms);
+	transmit_var(pc,low_g_acc.x);
+	transmit_var(pc,low_g_acc.y);
+	transmit_var(pc,low_g_acc.z);
+	transmit_var(pc,quaternion.w);
+	transmit_var(pc,quaternion.x);
+	transmit_var(pc,quaternion.y);	
+	transmit_var(pc,quaternion.z);
+	transmit_var(pc,temperature);
+	transmit_var(pc,pressure);
 	pc.putc(',');
-
-	pc.putc('k');
-	transmit_int32(pc,time_elapsed_ms);
-	transmit_int16(pc,low_g_acc.x);
-	transmit_int16(pc,low_g_acc.y);
-	transmit_int16(pc,low_g_acc.z);
-	transmit_int16(pc,quaternion.w);
-	transmit_int16(pc,quaternion.x);
-	transmit_int16(pc,quaternion.y);
-	transmit_int16(pc,quaternion.z);
-	pc.putc(',');
-
+	
 	pc.putc('h');
-	transmit_int16(pc,high_g_acc.x);
-	transmit_int16(pc,high_g_acc.y);
-	transmit_int16(pc,high_g_acc.z);
+	transmit_var(pc,high_g_acc.x);
+	transmit_var(pc,high_g_acc.y);
+	transmit_var(pc,high_g_acc.z);
 	pc.putc(',');
-
+	
 	pc.putc('m');
-	transmit_int32(pc,flash.get_bytes_pushed());
-	pc.putc(',');		
+	transmit_var(pc,flash.get_bytes_pushed());
+	pc.putc(',');
 }
 
 int main()
@@ -301,9 +300,10 @@ int main()
 
 	// reference pressure taken at launch pad. used to determine if rocket has exceeded launch alititude threshold
 	float pressure_at_alt_threshold{0};
-	
+
 	env.initialize();
-	
+	imu.set_mounting_position(BNO055_MOUNTING_POSITION);
+
 	while(1)
 	{
 		switch (flight_state)
@@ -400,7 +400,9 @@ int main()
 				//erase the memory chip before collecting new data
 				//flash.erase_chip();
 
-				pressure_at_alt_threshold = LAUNCH_PRESSURE_THRESHOLD_RATIO * env.getPressure();
+				temperature = env.getTemperature();
+				pressure = env.getPressure();				
+				pressure_at_alt_threshold = LAUNCH_PRESSURE_THRESHOLD_RATIO * pressure;
 				
 				buzzer.turn_on();
 				flight_state = PAD;
@@ -410,11 +412,11 @@ int main()
 			// wait for pressure (altitude) change or z-axis g-force indicative of launch then goto FLIGHT
 			{
 				wait_ms(1);
-				pressure = env.getPressure();
-				imu.get_accel_short(low_g_acc);
 				// check sensors to see if rocket is now in flight
 				// check sign of z-axis acceleration - make sure it is correct!!!
-				if (pressure <= pressure_at_alt_threshold && low_g_acc.z >= LAUNCH_Z_ACC_THRESHOLD_MPSQ)
+				pressure = env.getPressure();
+				imu.get_accel_short(low_g_acc);
+				if (pressure < pressure_at_alt_threshold || low_g_acc.z > LAUNCH_Z_ACC_THRESHOLD_MPSQ)
 				{
 					// start time-stamp clock					
 					time_stamp.reset();

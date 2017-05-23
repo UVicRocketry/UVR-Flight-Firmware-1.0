@@ -24,7 +24,6 @@
 #define WE_INST			0x06 // write enable
 #define WD_INST			0x04 // write disable
 #define R_INST			0x03 // read
-//#define R_INST		  0x0b // fast read
 #define W_INST			0x02 // page write
 #define C_ERASE_INST	0x60 // chip erase
 #define SE_INST			0x20 // sector erase
