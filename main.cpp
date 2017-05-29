@@ -10,12 +10,11 @@
  *	Written for UVic Rocketry
  *
  *	To-do:
- *	- Finish implementing data queuing
- *	- Implement flight state machine
  *	- Implement BNO055 calibration routine if necessary
- *	- Finalize memory storage format - big or little endian???
+ *	- Set memory storage format to little-endian for competition
  *	- Clean up global declarations. Consider making some local scope. Consider putting others in header files.
  *	- Verify comparison expression of z-axis acceleration threshold
+ *	- Verify landing detection delta-pressure threshold
  */
 
 #include "mbed.h"
@@ -23,33 +22,45 @@
 #include "ADXL377.hpp"
 #include "BNO055.hpp"
 #include "W25Q128.hpp"
-#include "PwmDriver.hpp"
+#include "PwmDriver.hpp"	
 
 #include <queue>
+#include <array>
 
 // Enable little-endian flash memory storage here with 1, otherwise enter 0 for big-endian
 #define LITTLE_ENDIAN_STORAGE 0
 
-constexpr int HALL_EFFECT_TRIGGER_DURATION_MS{2000};
+// Enable ground-level testing mode here with 1, otherwise 0 for competition flight mode
+#define GROUND_TESTING_MODE 1
+
+constexpr int HALL_EFFECT_TRIGGER_DURATION_MS{500};
 constexpr float LAUNCH_Z_ACC_THRESHOLD_MPSQ{9.81 * 3};
 constexpr int LAUNCH_Z_ACC_DURATION_MS{2000};
 
 // multiply this value by the referene pressurce to get the pressure at the alititude threashold
 // altitude threshold is currently calculated for ***20 meters***
 constexpr float LAUNCH_PRESSURE_THRESHOLD_RATIO{0.9976};
+// time interval for over which pressure readings are compared to detect LANDED state
+constexpr float LANDING_CHECK_TIME_INTERVAL_S{20.0};
+// maximum pressure change for which the rocket is considered to be in the LANDED state
+constexpr uint32_t LANDING_DETECTION_PRESSURE_CHANGE_THRESHOLD_PA{10};
 
 // serial connection to PC. used to recieve data from and send instructions to board
 Serial pc(USBTX, USBRX,115200);
 
+//specify leds and their pin designations here
+std::array<DigitalOut,3> leds{DigitalOut(PB_3),DigitalOut(PB_4),DigitalOut(PB_10)};
+
 // I2C Bus used to communicate with BMP280 and BNO055
-I2C* i2c_p = new I2C(I2C_SDA,I2C_SCL);
+I2C* i2c_p = new I2C(PB_9,PB_8);
 
 // Environmental sensor (temp + pressure)
-BMP280 env(i2c_p);
-int temperature, pressure;
+BMP280 env(i2c_p,0x77 << 1);
+int32_t temperature;
+uint32_t pressure;
 
 // 200g x/y/z accelerometer connected to analog input lines
-ADXL377 high_g(A0,A1,A2);
+ADXL377 high_g(PA_0,PA_1,PA_4);
 ADXL377_readings high_g_acc;
 
 // 16g accelerometer and orientation sensor
@@ -59,27 +70,30 @@ BNO055_QUATERNION quaternion;
 BNO055_ACC_short low_g_acc;
 
 // 16Mb Flash memory
-W25Q128 flash(D11,D12,D13,D10);
+W25Q128 flash(PA_7,PA_6,PA_5,PB_6);
 
-// Debug LED
-DigitalOut led0(D2);
+// Status LED
+DigitalOut status_led(PB_0);
+
+// Voltage-Regulator ENABLE
+DigitalOut voltage_reg_en(PA_10);
 
 // Debug mode jumper
-DigitalIn debug_jumper(D7);
+DigitalIn debug_jumper(PA_8);
 
 // Hall-effect sensor input
-DigitalIn hall_effect_input(D4);
+DigitalIn hall_effect_input(PB_5);
 
 // Buzzer output
-PwmDriver buzzer(D9);
+PwmDriver buzzer(PC_7);
+
+// NUCLEO USER button
+DigitalIn user_button(PC_13);
 
 // Interrupt timer used for data time-stamping
 Timer time_stamp;
-int time_elapsed_ms;
-int sensor_read_delay_us;
-
-// 100Hz interrupt timer
-Ticker ticker_100_Hz;
+uint32_t time_elapsed_ms{0};
+constexpr uint32_t TIMER_MS_MAX_VALUE = 2147483647 / 1000;
 
 // Used to store sensor data values before storing them in flash memory
 queue<char> data_queue;
@@ -91,11 +105,8 @@ bool is_recording_data{false};
 // is the board currently erasing the W25Q128 flash memory?
 bool is_erasing_memory{false};
 
-// has ticker signalled a pending sensor sampling?
-bool sensor_read_pending{false};
-
 // transmit a variable over a serial connection as a series of bytes
-template <typename T> void transmit_var(Serial &pc, T d)
+template <typename T> void transmit_var(Serial &pc, const T& d)
 {
 	char byte_size = sizeof(d);
 	for (int i = 0; i < byte_size; i++)
@@ -103,21 +114,60 @@ template <typename T> void transmit_var(Serial &pc, T d)
 }
 
 // push a variable to the data queue as a series of bytes (endianess set by LITTLE_ENDIAN_STORAGE 0 or 1)
-template <typename T> void push_to_queue(T d)
+template <typename T> void push_to_queue(const T& d)
 {
 	int byte_size = sizeof(d);
 	#if LITTLE_ENDIAN_STORAGE
 	for (int i = 0; i < byte_size; i++)
 	#else
-	for (int i = byte_size; i >= 0; i--)
+	for (int i = byte_size - 1; i >= 0; i--)
 	#endif
 		data_queue.push((d & ( 0xFF << i*8)) >> i*8); 
 }
 
-// send raw contents of W25Q128 flash memory to PC over serial
-void transmit_recorded_data(unsigned int num_pages = W25Q128::NUM_PAGES)
+// write next available page of queued data to the flash memory
+bool process_data_queue()
 {
-	led0 = 0;
+	if (data_queue.size() >= PAGE_SIZE && flash.get_pages_pushed() < flash.MAX_PAGES - 2)
+	{
+		page new_page;
+		for (auto & c : new_page)
+		{
+			c = data_queue.front();
+			data_queue.pop();
+		}
+		flash.push_page_back(new_page);
+		return true;
+	}
+	return false;
+}
+
+// write current contents of data queue to memory, up to a maximum of 256 bytes
+// if data queue is smaller than 256 bytes, then write zeros for the corresponding page memory cells
+bool force_page_write()
+{
+	if (flash.get_pages_pushed() < flash.MAX_PAGES)
+	{
+		page new_page;
+		for (auto & c : new_page)
+		{
+			if (data_queue.empty())
+				c = 0;
+			else
+			{
+				c = data_queue.front();
+				data_queue.pop();
+			}
+		}
+		flash.push_page_back(new_page);
+		return true;
+	}
+	return false;
+}
+
+// send raw contents of W25Q128 flash memory to PC over serial
+void transmit_recorded_data(unsigned int num_pages = W25Q128::MAX_PAGES)
+{
 	// signal pc that board is now uploading data
 	pc.putc('d');
 	pc.putc(0);
@@ -136,7 +186,6 @@ void transmit_recorded_data(unsigned int num_pages = W25Q128::NUM_PAGES)
 			pc.putc(c);
 		}
 	}
-	led0 = 1;
 }
 
 // ISR to handle instruction tokens sent from PC to NUCLEO
@@ -176,80 +225,74 @@ void rx_interrupt()
 	}
 }
 
-void data_tick()
+// helper function to manage MBED timer overflow
+// assumes update interval is < 30 minutes
+void update_time_elapsed()
 {
-	sensor_read_pending = true;
+	/*
+	static uint32_t old_time_ms{0};
+	uint32_t current_time_ms = time_stamp.read_ms();
+	
+	if (current_time_ms < old_time_ms)
+	{
+		time_elapsed_ms += (TIMER_MS_MAX_VALUE - old_time_ms);
+		old_time_ms = 0;
+	}	
+
+	time_elapsed_ms += (current_time_ms - old_time_ms);
+	old_time_ms = current_time_ms;
+	*/
+	time_elapsed_ms = time_stamp.read_ms();
 }
 
-void read_sensors()
+void log_data(bool force_env_log = false)
 {
 	bool record_env_readings{false};
-	char data_header = 'k';
-	
-	time_elapsed_ms = time_stamp.read_ms();
-	sensor_read_delay_us = time_stamp.read_us();
-	
-	imu.get_quaternion(quaternion);
-	imu.get_accel_short(low_g_acc);
-	
-	high_g.read(high_g_acc);
+	char data_header = 'k';	
 	
 	// log environmental sensors at slower rate
 	static int count{0};
-	if (count >= 100)
+	if (count >= 100 || force_env_log)
 	{
-		temperature = env.getTemperature();
-		pressure = env.getPressure();
-
 		count = 0;
-
 		record_env_readings = true;
 		data_header = 'e';
 	}	
 	else
 		count++;
+
+	data_queue.push(data_header);
+	push_to_queue(time_elapsed_ms);
+
+	push_to_queue(low_g_acc.x);
+	push_to_queue(low_g_acc.y);
+	push_to_queue(low_g_acc.z);
 	
-	sensor_read_delay_us = time_stamp.read_us() - sensor_read_delay_us;
+	push_to_queue(quaternion.w);
+	push_to_queue(quaternion.x);
+	push_to_queue(quaternion.y);
+	push_to_queue(quaternion.z);
 	
-	if (is_recording_data)
+	if (record_env_readings)
 	{
-		data_queue.push(data_header);
-		push_to_queue(time_elapsed_ms);
-
-		push_to_queue(low_g_acc.x);
-		push_to_queue(low_g_acc.y);
-		push_to_queue(low_g_acc.z);
-		
-		push_to_queue(quaternion.w);
-		push_to_queue(quaternion.x);
-		push_to_queue(quaternion.y);
-		push_to_queue(quaternion.z);
-		
-		if (record_env_readings)
-		{
-			push_to_queue(temperature);
-			push_to_queue(pressure);
-		}
-		
-		data_queue.push(',');
+		push_to_queue(temperature);
+		push_to_queue(pressure);
 	}
-
-	// reset sensor read flag
-	sensor_read_pending = false;
+	
+	data_queue.push(',');
 }
 
-void process_data_queue()
-{
-	if (data_queue.size() >= PAGE_SIZE)
-	{
-		page new_page;
-		for (auto & c : new_page)
-		{
-			c = data_queue.front();
-			data_queue.pop();
-		}
-		flash.push_page(new_page);
-	}
+void update_sensor_readings()
+{	
+	update_time_elapsed();
+		
+	imu.get_quaternion(quaternion);
+	imu.get_accel_short(low_g_acc);
+	
+	high_g.read(high_g_acc);
+	
+	temperature = env.getTemperature();
+	pressure = env.getPressure();
 }
 
 // transmit sensor data packets to be read as input for the UVR-Sensor-Display utility program
@@ -275,31 +318,32 @@ void transmit_test_outputs()
 	pc.putc(',');
 	
 	pc.putc('m');
-	transmit_var(pc,flash.get_bytes_pushed());
+	transmit_var(pc,flash.get_pages_pushed());
 	pc.putc(',');
 }
 
 int main()
 {
+	// 100Hz interrupt timer
+	Ticker ticker_100_Hz;
+	// has ticker signalled a pending sensor sampling?
+	bool sensor_read_pending{false};	
+	// enable 100Hz sensor sampling interrupt
+	ticker_100_Hz.attach([&sensor_read_pending](){sensor_read_pending = true;},0.01);
+	
 	// rocket flight states
 	enum state {STARTUP,DEBUG,IDLE,INIT_FLIGHT,PAD,FLIGHT,LANDED};
 	state flight_state{STARTUP};
 
+	// set buzzer duty cycle
 	buzzer.set_duty(0.5);
-
+	// set UV leds to off
+	for (auto & led : leds)
+		led = 0;
+	
 	debug_jumper.mode(PullDown);
-	hall_effect_input.mode(PullDown);
-
-	// enable 100Hz sensor sampling interrupt
-	ticker_100_Hz.attach(&data_tick,0.01);
-
-	// polling flag used to check if hall effect sensor has been tripped
-	bool hall_effect_detected{false};
-	// duration timer to see if hall effect sensor is active for sufficient duration
-	Timer hall_effect_timer;
-
-	// reference pressure taken at launch pad. used to determine if rocket has exceeded launch alititude threshold
-	float pressure_at_alt_threshold{0};
+	hall_effect_input.mode(PullUp);
+	user_button.mode(PullUp);
 
 	env.initialize();
 	imu.set_mounting_position(BNO055_MOUNTING_POSITION);
@@ -311,58 +355,62 @@ int main()
 			case STARTUP:
 			// board init procedure. will start here after board reset. goto DEBUG is debug jumper set, else goto IDLE
 			{
-
 				// if debug jumper is set, then immediately transition to the board debug mode
 				if (debug_jumper.read())
-				{
 					flight_state = DEBUG;
-
-					// debug mode indicator light
-					led0 = 1;
-
-					// remove this erase_sector() for actual firmware!
-					flash.erase_sector(0);
-
-					// enable serial instruction tokens from PC
-					pc.attach(&rx_interrupt,Serial::RxIrq);
-
-					// start time-stamp clock
-					time_stamp.reset();
-					time_stamp.start();
-				}
+				// else start the flight sequence
 				else
-				{
 					flight_state = IDLE;
-				}
 			}
 			break;
 			case DEBUG:
 			// output sensor test values over serial and wait for PC instructions. no state transitions here
 			{
-				// if erase chip flag is set, then erase the chip
-				if (is_erasing_memory)
-				{
-					flash.erase_chip();
-					is_erasing_memory = false;
-				}
-				
-				// if sensor read flag is set by ticker ISR, then read the sensors and send updated values to pc
-				if (sensor_read_pending)
-				{
-					read_sensors();
-					transmit_test_outputs();
-				}
-				
-				// if board is currently set to upload memory contents to PC, then do so
-				else if (is_sending_data_to_pc)
-				{
-					transmit_recorded_data();
-					is_sending_data_to_pc = false;
-				}
+				// debug mode indicator light
+				status_led = 1;
 
-				// if board is currently set to record data, then do so
-				if (is_recording_data)
+				// remove this erase_sector() for actual firmware!
+				flash.erase_sector(0);
+
+				// enable serial instruction tokens from PC
+				pc.attach(&rx_interrupt,Serial::RxIrq);
+
+				// start time-stamp clock
+				time_stamp.reset();
+				time_stamp.start();
+
+				while(1)
 				{
+					// if erase chip flag is set, then erase the chip
+					if (is_erasing_memory)
+					{
+						flash.erase_chip();
+						is_erasing_memory = false;
+					}
+					
+					// if sensor read flag is set by ticker ISR, then read the sensors and send updated values to pc
+					if (sensor_read_pending)
+					{
+						// sample all sensors based on current sampling rate
+						update_sensor_readings();
+						
+						if (is_recording_data)
+							log_data();
+						
+						// send debugging data to PC over serial
+						transmit_test_outputs();
+						
+						// reset sensor read flag
+						sensor_read_pending = false;						
+					}
+					
+					// if board is currently set to upload memory contents to PC, then do so
+					else if (is_sending_data_to_pc)
+					{
+						transmit_recorded_data();
+						is_sending_data_to_pc = false;
+					}
+
 					process_data_queue();
 				}
 			}
@@ -370,28 +418,35 @@ int main()
 			case IDLE:
 			// start of non-debug sequence. wait for Hall-effect sensor to trip for set duration, then goto INIT_FLIGHT
 			{
-				wait_ms(1);
-				if (hall_effect_input.read())
+				// polling flag used to check if hall effect sensor has been tripped
+				bool hall_effect_detected{false};
+				// duration timer to see if hall effect sensor is active for sufficient duration
+				Timer hall_effect_timer;
+
+				while(1)
 				{
-					// if hall effect just detected, then start duration timer
-					if (!hall_effect_detected)
+					wait_ms(1);
+					if (!hall_effect_input.read() || !user_button.read())
 					{
-						hall_effect_detected = true;
-						hall_effect_timer.reset();
-						hall_effect_timer.start();
-					}
-					// if hall effect persists from last function call, then check to see if has lasted for set duration
-					else
-						// if hall effect detected for set duration or longer, then transition to INIT_FLIGHT
-						if (hall_effect_timer.read_ms() >= HALL_EFFECT_TRIGGER_DURATION_MS)
+						// if hall effect just detected, then start duration timer
+						if (!hall_effect_detected)
+						{
+							hall_effect_detected = true;
+							hall_effect_timer.reset();
+							hall_effect_timer.start();
+						}
+						// if hall effect persists from last function call, then check to see if has lasted for set duration
+						else if (hall_effect_timer.read_ms() >= HALL_EFFECT_TRIGGER_DURATION_MS || !user_button.read())
 						{
 							hall_effect_timer.stop();
 							flight_state = INIT_FLIGHT;
+							break;
 						}
+					}
+					// if hall effect doesn't persist for duration, then clear polling flag
+					else
+						hall_effect_detected = false;
 				}
-				// if hall effect doesn't persist for duration, then clear polling flag
-				else
-					hall_effect_detected = false;
 			}
 			break;
 			case INIT_FLIGHT:
@@ -399,50 +454,147 @@ int main()
 			{
 				//erase the memory chip before collecting new data
 				//flash.erase_chip();
-
-				temperature = env.getTemperature();
-				pressure = env.getPressure();				
-				pressure_at_alt_threshold = LAUNCH_PRESSURE_THRESHOLD_RATIO * pressure;
-				
 				buzzer.turn_on();
+				wait(2);
+				buzzer.turn_off();
 				flight_state = PAD;
 			}
 			break;
 			case PAD:
 			// wait for pressure (altitude) change or z-axis g-force indicative of launch then goto FLIGHT
 			{
-				wait_ms(1);
-				// check sensors to see if rocket is now in flight
-				// check sign of z-axis acceleration - make sure it is correct!!!
+				status_led = 1;
+				env.getTemperature();
 				pressure = env.getPressure();
-				imu.get_accel_short(low_g_acc);
-				if (pressure < pressure_at_alt_threshold || low_g_acc.z > LAUNCH_Z_ACC_THRESHOLD_MPSQ)
+				float pressure_at_alt_threshold = LAUNCH_PRESSURE_THRESHOLD_RATIO * pressure;
+				
+				while(1)
 				{
-					// start time-stamp clock					
-					time_stamp.reset();
-					time_stamp.start();
-					flight_state = FLIGHT;
+					wait_ms(10);
+					// check sensors to see if rocket is now in flight
+					// check sign of z-axis acceleration - make sure it is correct!!!
+					env.getTemperature();
+					pressure = env.getPressure();
+					imu.get_accel_short(low_g_acc);
+					high_g.read(high_g_acc);
+
+					//if (pressure < pressure_at_alt_threshold || low_g_acc.z > LAUNCH_Z_ACC_THRESHOLD_MPSQ || !user_button.read())
+					if (pressure < pressure_at_alt_threshold || !user_button.read())
+					{					
+						flight_state = FLIGHT;	
+						break;
+					}
 				}
 			}
 			break;
 			case FLIGHT:
 			//	start logging data. goto LANDED if (1) sensors indicate landing or (2) second last page of memory filled
 			{
-				//state code goes here
+				buzzer.turn_on();
+				time_elapsed_ms = 0;
+				time_stamp.reset();
+				time_stamp.start();
+				
+				// activate UV LEDs and log time
+				voltage_reg_en = 1;
+				wait_ms(5);
+				for (auto & led : leds)
+					led = 1;
+				
+				update_sensor_readings();
+				data_queue.push('u');
+				push_to_queue(time_elapsed_ms);
+				data_queue.push(',');
+				
+				bool check_for_landed{false};
+				uint32_t old_pressure = pressure;
+				
+				Ticker pressure_check_ticker;
+				pressure_check_ticker.attach([&]()
+				{
+					check_for_landed = true;
+				},20.0
+				);
+				
+				while(1)
+				{
+					// if sensor read flag is set by ticker ISR, then read the sensors and send updated values to pc
+					if (sensor_read_pending)
+					{
+						// sample all sensors based on current sampling rate
+						update_sensor_readings();
+						log_data();
+						
+						// send debugging data to PC over serial
+						#ifdef GROUND_TESTING_MODE
+						transmit_test_outputs();
+						#endif 
+						
+						// reset sensor read flag
+						sensor_read_pending = false;
+					}
+					
+					process_data_queue();
+					
+					if (check_for_landed)
+					{
+						check_for_landed = false;
+						
+						env.getTemperature();
+						pressure = env.getPressure();
+						
+						uint32_t pressure_change;
+						if (old_pressure > pressure)
+							pressure_change = old_pressure - pressure;
+						else
+							pressure_change = pressure - old_pressure;
+						if (pressure_change < LANDING_DETECTION_PRESSURE_CHANGE_THRESHOLD_PA)
+						{
+							flight_state = LANDED;
+							break;
+						}
+						
+						old_pressure = pressure;
+					}
+				}
 			}
 			break;
 			case LANDED:
 			// stop logging data. shutoff all UV diodes and log time of shutoff.
 			{
-				//state code goes here
+				// deactivate UV LEDs
+				for (auto & led : leds)
+					led = 0;
+				voltage_reg_en = 0;
+				
+				// turn off automatic data sampling
+				ticker_100_Hz.detach();
+				
+				// get any remaining data stored in queue up to remaining page capacity minus two
+				while(process_data_queue()){}
+				// push partial page to memory
+				force_page_write();
+				// empty queue of any data that couldn't be stored
+				while(!data_queue.empty())
+					data_queue.pop();
+				
+				// take one final data sample and log time of UV shutoff
+				update_sensor_readings();
+				log_data(true);
+				data_queue.push('v');
+				push_to_queue(time_elapsed_ms);
+				data_queue.push(',');	
+				// push final page to memory
+				force_page_write();
+				
+				// wait until retrieval
+				while(1)
+					wait(10);
 			}
 			break;
 			default:
 			// code should *never* reach this block
-			{
-			
-			}
-
+			{}
 		}
 	}
 	return 0;

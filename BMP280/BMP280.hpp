@@ -18,7 +18,7 @@
 
 #include "mbed.h"
 
-#define DEFAULT_SLAVE_ADDRESS (0x77 << 1)
+#define DEFAULT_SLAVE_ADDRESS (0x76 << 1)
 
 
 class BMP280

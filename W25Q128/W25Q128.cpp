@@ -21,21 +21,21 @@ uint32_t W25Q128::get_id() {
 	return id;
 }
 
-bool W25Q128::push_page(const page &p)
+bool W25Q128::push_page_back(const page &p)
 {
-	if (bytes_pushed >= NUM_BYTES)
+	if (pages_pushed >= MAX_PAGES)
 		return false;
 
-	write_page(bytes_pushed,p);
+	write_page(pages_pushed*256,p);
 
-	bytes_pushed += p.size();
-
+	pages_pushed++;
+	
 	return true;
 }
 
-int W25Q128::get_bytes_pushed() const
+int W25Q128::get_pages_pushed() const
 {
-	return bytes_pushed;
+	return pages_pushed;
 }
 
 char W25Q128::read_byte(uint32_t addr) {
@@ -166,7 +166,7 @@ void W25Q128::erase_chip()
 	{
 		wait_ms(1000);
 	}
-	bytes_pushed = 0;
+	pages_pushed = 0;
 }
 
 void W25Q128::erase_sector(uint32_t sector_num) {

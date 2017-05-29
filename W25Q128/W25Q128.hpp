@@ -56,7 +56,7 @@ public:
 	char read_byte(uint32_t addr);
 	void read_page(uint32_t page_num, page &p);
 
-	bool push_page(const page &p);
+	bool push_page_back(const page &p);
 
 	void erase_chip();
 	void erase_sector(uint32_t sector_num);
@@ -65,14 +65,14 @@ public:
 
 	bool is_busy();
 
-	int get_bytes_pushed() const;
-
-	static constexpr int NUM_PAGES = NUM_BLOCKS * SECT_PER_BLOCK * PAGES_PER_SECT;
-	static constexpr int NUM_BYTES = NUM_PAGES * PAGE_SIZE;
+	int get_pages_pushed() const;
+	
+	static constexpr int MAX_PAGES = NUM_BLOCKS * SECT_PER_BLOCK * PAGES_PER_SECT;
+	static constexpr int MAX_BYTES = MAX_PAGES * PAGE_SIZE;
 
 	private:
 
-	int bytes_pushed = 0;
+	int pages_pushed{0};
 
 	SPI spi;
 	DigitalOut cs;
