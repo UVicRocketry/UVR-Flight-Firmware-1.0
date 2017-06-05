@@ -10,11 +10,10 @@
  *	Written for UVic Rocketry
  *
  *	To-do:
- *	- Implement BNO055 calibration routine if necessary
+ *	- !!!VERIFY CHIP ERASE IS IN FINAL INIT_FLIGHT ROUTINE!!!
+ *	- !!!Verify FLIGHT->LANDED state transition!!!
  *	- Set memory storage format to little-endian for competition
  *	- Clean up global declarations. Consider making some local scope. Consider putting others in header files.
- *	- Verify comparison expression of z-axis acceleration threshold
- *	- Verify landing detection delta-pressure threshold
  */
 
 #include "mbed.h"
@@ -27,15 +26,24 @@
 #include <queue>
 #include <array>
 
-// Enable little-endian flash memory storage here with 1, otherwise enter 0 for big-endian
+// Enable little-endian flash memory storage here with 1, otherwise 0 for big-endian
 #define LITTLE_ENDIAN_STORAGE 0
-
 // Enable ground-level testing mode here with 1, otherwise 0 for competition flight mode
 #define GROUND_TESTING_MODE 1
+// Enable BNO055 fusion sensor with 1, otherwise 0
+#define BNO055_ENABLED 0
 
+// amount of time that magnetic field must be detected before IDLE->PAD state transition is triggered
 constexpr int HALL_EFFECT_TRIGGER_DURATION_MS{500};
-constexpr float LAUNCH_Z_ACC_THRESHOLD_MPSQ{9.81 * 3};
-constexpr int LAUNCH_Z_ACC_DURATION_MS{2000};
+
+// amount g-force required to trigger PAD->FLIGHT state transition
+constexpr float LAUNCH_G_FORCE_THRESHOLD{3.0};
+// amount of time that positive g-force must be sustained before FLIGHT state is triggered
+constexpr int Z_ACC_TRIGGER_DURATION_MS{20};
+// ratio of NUCLEO analog input readings to ADXL377 g-force reading
+constexpr float ADXL377_INT_PER_G{65535.0/400.0};
+// NUCELO analog input reading change corresponding to required g-force change for FLIGHT state triggering
+constexpr int ADXL377_Z_ACC_THRESHOLD{(int)(ADXL377_INT_PER_G * LAUNCH_G_FORCE_THRESHOLD)};
 
 // multiply this value by the referene pressurce to get the pressure at the alititude threashold
 // altitude threshold is currently calculated for ***20 meters***
@@ -43,42 +51,44 @@ constexpr float LAUNCH_PRESSURE_THRESHOLD_RATIO{0.9976};
 // time interval for over which pressure readings are compared to detect LANDED state
 constexpr float LANDING_CHECK_TIME_INTERVAL_S{20.0};
 // maximum pressure change for which the rocket is considered to be in the LANDED state
-constexpr uint32_t LANDING_DETECTION_PRESSURE_CHANGE_THRESHOLD_PA{10};
+constexpr uint32_t LANDING_DETECTION_PRESSURE_CHANGE_THRESHOLD_PA{100};
 
 // serial connection to PC. used to recieve data from and send instructions to board
 Serial pc(USBTX, USBRX,115200);
 
-//specify leds and their pin designations here
-std::array<DigitalOut,3> leds{DigitalOut(PB_3),DigitalOut(PB_4),DigitalOut(PB_10)};
+// UV led array
+std::array<DigitalOut,3> uv_leds{DigitalOut(PB_3),DigitalOut(PB_4),DigitalOut(PB_10)};
 
 // I2C Bus used to communicate with BMP280 and BNO055
 I2C* i2c_p = new I2C(PB_9,PB_8);
 
-// Environmental sensor (temp + pressure)
-BMP280 env(i2c_p,0x77 << 1);
+// BMP280 environmental sensor (temp + pressure)
+BMP280 env(i2c_p);
 int32_t temperature;
 uint32_t pressure;
 
-// 200g x/y/z accelerometer connected to analog input lines
+// ADXL377 200g x/y/z accelerometer connected to analog input lines
 ADXL377 high_g(PA_0,PA_1,PA_4);
 ADXL377_readings high_g_acc;
 
-// 16g accelerometer and orientation sensor
+// BNO055 16g accelerometer and orientation sensor
+#if BNO055_ENABLED
 BNO055 imu(i2c_p,NC);
 constexpr int BNO055_MOUNTING_POSITION{MT_P0};
 BNO055_QUATERNION quaternion;
 BNO055_ACC_short low_g_acc;
+#endif
 
-// 16Mb Flash memory
+// W25Q128 16Mb Flash memory
 W25Q128 flash(PA_7,PA_6,PA_5,PB_6);
 
-// Status LED
+// Payload board status LED
 DigitalOut status_led(PB_0);
 
-// Voltage-Regulator ENABLE
+// UV diode voltage-regulator ENABLE signal
 DigitalOut voltage_reg_en(PA_10);
 
-// Debug mode jumper
+// Debug mode jumper (can also be used to trigger FLIGHT->LANDED state transition)
 DigitalIn debug_jumper(PA_8);
 
 // Hall-effect sensor input
@@ -87,13 +97,16 @@ DigitalIn hall_effect_input(PB_5);
 // Buzzer output
 PwmDriver buzzer(PC_7);
 
-// NUCLEO USER button
+// NUCLEO USER button 
 DigitalIn user_button(PC_13);
+
+// Payload board button (can be used to trigger IDLE->PAD and PAD->FLIGHT state transitions)
+DigitalIn payload_button(PA_9);
 
 // Interrupt timer used for data time-stamping
 Timer time_stamp;
 uint32_t time_elapsed_ms{0};
-constexpr uint32_t TIMER_MS_MAX_VALUE = 2147483647 / 1000;
+uint32_t sensor_read_time{0};
 
 // Used to store sensor data values before storing them in flash memory
 queue<char> data_queue;
@@ -128,7 +141,7 @@ template <typename T> void push_to_queue(const T& d)
 // write next available page of queued data to the flash memory
 bool process_data_queue()
 {
-	if (data_queue.size() >= PAGE_SIZE && flash.get_pages_pushed() < flash.MAX_PAGES - 2)
+	if (data_queue.size() >= PAGE_SIZE && flash.get_pages_pushed() < flash.MAX_PAGES - 3)
 	{
 		page new_page;
 		for (auto & c : new_page)
@@ -168,7 +181,7 @@ bool force_page_write()
 // send raw contents of W25Q128 flash memory to PC over serial
 void transmit_recorded_data(unsigned int num_pages = W25Q128::MAX_PAGES)
 {
-	// signal pc that board is now uploading data
+	// signal pc that board is now uploading contents
 	pc.putc('d');
 	pc.putc(0);
 	pc.putc(',');
@@ -186,6 +199,12 @@ void transmit_recorded_data(unsigned int num_pages = W25Q128::MAX_PAGES)
 			pc.putc(c);
 		}
 	}
+	
+	// signal pc that board has finish uploading memory contents
+	wait_ms(1000);
+	pc.putc('f');
+	pc.putc(0);
+	pc.putc(',');
 }
 
 // ISR to handle instruction tokens sent from PC to NUCLEO
@@ -206,45 +225,44 @@ void rx_interrupt()
 			break;
 			// start recording data to flash memory
 			case 'r':
+				#if GROUND_TESTING_MODE
 				is_recording_data = true;
+				#endif
 			break;
 			// stop recording data to flash memory
 			case 's':
 				is_recording_data = false;
 			break;
-			// completely erase the flash memory
-			case 'e':
-				is_erasing_memory = true;
-				is_sending_data_to_pc = false;
-				is_recording_data = false;
-			break;
 			default:
-
 			break;
 		}
 	}
 }
 
-// helper function to manage MBED timer overflow
-// assumes update interval is < 30 minutes
+/*
+ *	Update the time-elapsed (flight T+) clock based on the internal timer.
+ *	MBED Timer will only go to ~(2^31 - 1)/1000 before overflow,
+ *	therefore it is necessary to account for this if timer values are expected
+ *	to go beyond ~30 minutes
+ */ 
+constexpr uint32_t MAX_MS_COUNT = 1'800'000;
 void update_time_elapsed()
 {
-	/*
-	static uint32_t old_time_ms{0};
-	uint32_t current_time_ms = time_stamp.read_ms();
+	static uint8_t overflow_count{0};
 	
-	if (current_time_ms < old_time_ms)
+	uint32_t curr_time_ms = time_stamp.read_ms();
+	
+	if (curr_time_ms >= MAX_MS_COUNT)
 	{
-		time_elapsed_ms += (TIMER_MS_MAX_VALUE - old_time_ms);
-		old_time_ms = 0;
-	}	
-
-	time_elapsed_ms += (current_time_ms - old_time_ms);
-	old_time_ms = current_time_ms;
-	*/
-	time_elapsed_ms = time_stamp.read_ms();
+		++overflow_count;
+		time_stamp.reset();
+		curr_time_ms -= MAX_MS_COUNT;
+	}
+	
+	time_elapsed_ms = curr_time_ms + MAX_MS_COUNT*overflow_count;
 }
 
+// push most recent sensor readings to the data queue for later processing (writing to flash)
 void log_data(bool force_env_log = false)
 {
 	bool record_env_readings{false};
@@ -264,6 +282,7 @@ void log_data(bool force_env_log = false)
 	data_queue.push(data_header);
 	push_to_queue(time_elapsed_ms);
 
+	#if BNO055_ENABLED
 	push_to_queue(low_g_acc.x);
 	push_to_queue(low_g_acc.y);
 	push_to_queue(low_g_acc.z);
@@ -272,6 +291,11 @@ void log_data(bool force_env_log = false)
 	push_to_queue(quaternion.x);
 	push_to_queue(quaternion.y);
 	push_to_queue(quaternion.z);
+	#else
+	push_to_queue(high_g_acc.x);
+	push_to_queue(high_g_acc.y);
+	push_to_queue(high_g_acc.z);
+	#endif
 	
 	if (record_env_readings)
 	{
@@ -282,43 +306,91 @@ void log_data(bool force_env_log = false)
 	data_queue.push(',');
 }
 
+// update readings for all sensors
 void update_sensor_readings()
 {	
+	// update time stamp
 	update_time_elapsed();
+
+	#if GROUND_TESTING_MODE
+	// get sensor read time
+	sensor_read_time = time_stamp.read_us();
+	#endif
+	
+	// update 200g accelerometer reading
+	high_g.read(high_g_acc);
 		
+	#if BNO055_ENABLED	
+	// get BNO055 16-g and orientation readings
 	imu.get_quaternion(quaternion);
 	imu.get_accel_short(low_g_acc);
+	#endif
 	
-	high_g.read(high_g_acc);
-	
+	// get temperature and pressure readings
 	temperature = env.getTemperature();
 	pressure = env.getPressure();
+	
+	#if GROUND_TESTING_MODE
+	// get sensor read time
+	sensor_read_time = time_stamp.read_us() - sensor_read_time;
+	#endif
 }
 
 // transmit sensor data packets to be read as input for the UVR-Sensor-Display utility program
 void transmit_test_outputs()
 {	
-	pc.putc('e');
+	// transmit time elapsed
+	pc.putc('c');
 	transmit_var(pc,time_elapsed_ms);
+	pc.putc(',');
+	
+	#if BNO055_ENABLED
+	// transmit l6-g accelerometer readings
+	pc.putc('a');
 	transmit_var(pc,low_g_acc.x);
 	transmit_var(pc,low_g_acc.y);
 	transmit_var(pc,low_g_acc.z);
+	pc.putc(',');
+	
+	pc.putc('q');
+	// transmit orientation readings
 	transmit_var(pc,quaternion.w);
 	transmit_var(pc,quaternion.x);
 	transmit_var(pc,quaternion.y);	
 	transmit_var(pc,quaternion.z);
+	pc.putc(',');
+	#endif
+	
+	// transmit temperature reading
+	pc.putc('t');
 	transmit_var(pc,temperature);
+	pc.putc(',');
+	
+	// transmit pressure reading
+	pc.putc('p');
 	transmit_var(pc,pressure);
 	pc.putc(',');
 	
+	// transmit 200g accelerometer reading
 	pc.putc('h');
 	transmit_var(pc,high_g_acc.x);
 	transmit_var(pc,high_g_acc.y);
 	transmit_var(pc,high_g_acc.z);
 	pc.putc(',');
 	
+	// transmit number of pages written to the flash memory
 	pc.putc('m');
 	transmit_var(pc,flash.get_pages_pushed());
+	pc.putc(',');
+
+	// transmit current size of the pre-write data queue
+	pc.putc('b');
+	transmit_var(pc,(uint32_t)data_queue.size());
+	pc.putc(',');
+	
+	// transmit combined read time for all sensors
+	pc.putc('s');
+	transmit_var(pc,sensor_read_time);
 	pc.putc(',');
 }
 
@@ -337,17 +409,31 @@ int main()
 
 	// set buzzer duty cycle
 	buzzer.set_duty(0.5);
+	
+	// ISR used to pulse the buzzer
+	Ticker buzzer_ticker;
+	bool buzzer_on{false};
+	auto buzzer_pulse = [&]()
+	{
+			buzzer_on ? buzzer.turn_off() : buzzer.turn_on();
+			buzzer_on = !buzzer_on;
+	};
+
 	// set UV leds to off
-	for (auto & led : leds)
+	for (auto & led : uv_leds)
 		led = 0;
 	
 	debug_jumper.mode(PullDown);
 	hall_effect_input.mode(PullUp);
 	user_button.mode(PullUp);
-
+	payload_button.mode(PullDown);
+	
 	env.initialize();
+	
+	#if BNO055_ENABLED
 	imu.set_mounting_position(BNO055_MOUNTING_POSITION);
-
+	#endif
+	
 	while(1)
 	{
 		switch (flight_state)
@@ -360,7 +446,7 @@ int main()
 					flight_state = DEBUG;
 				// else start the flight sequence
 				else
-					flight_state = IDLE;
+					flight_state = IDLE;				
 			}
 			break;
 			case DEBUG:
@@ -368,9 +454,6 @@ int main()
 			{
 				// debug mode indicator light
 				status_led = 1;
-
-				// remove this erase_sector() for actual firmware!
-				flash.erase_sector(0);
 
 				// enable serial instruction tokens from PC
 				pc.attach(&rx_interrupt,Serial::RxIrq);
@@ -381,13 +464,6 @@ int main()
 
 				while(1)
 				{
-					// if erase chip flag is set, then erase the chip
-					if (is_erasing_memory)
-					{
-						flash.erase_chip();
-						is_erasing_memory = false;
-					}
-					
 					// if sensor read flag is set by ticker ISR, then read the sensors and send updated values to pc
 					if (sensor_read_pending)
 					{
@@ -426,7 +502,7 @@ int main()
 				while(1)
 				{
 					wait_ms(1);
-					if (!hall_effect_input.read() || !user_button.read())
+					if (!hall_effect_input.read() || payload_button.read())
 					{
 						// if hall effect just detected, then start duration timer
 						if (!hall_effect_detected)
@@ -436,26 +512,27 @@ int main()
 							hall_effect_timer.start();
 						}
 						// if hall effect persists from last function call, then check to see if has lasted for set duration
-						else if (hall_effect_timer.read_ms() >= HALL_EFFECT_TRIGGER_DURATION_MS || !user_button.read())
-						{
-							hall_effect_timer.stop();
-							flight_state = INIT_FLIGHT;
+						else if (hall_effect_timer.read_ms() >= HALL_EFFECT_TRIGGER_DURATION_MS || payload_button.read())
 							break;
-						}
+						
 					}
 					// if hall effect doesn't persist for duration, then clear polling flag
 					else
 						hall_effect_detected = false;
 				}
+				hall_effect_timer.stop();
+				flight_state = INIT_FLIGHT;
 			}
 			break;
 			case INIT_FLIGHT:
 			// initialize board, sensors, and memory for flight. then goto PAD
 			{
-				//erase the memory chip before collecting new data
-				//flash.erase_chip();
+				buzzer_ticker.attach(buzzer_pulse,0.5);
+				flash.erase_chip();
+				force_page_write();
+				buzzer_ticker.detach();
 				buzzer.turn_on();
-				wait(2);
+				wait(5);
 				buzzer.turn_off();
 				flight_state = PAD;
 			}
@@ -463,48 +540,85 @@ int main()
 			case PAD:
 			// wait for pressure (altitude) change or z-axis g-force indicative of launch then goto FLIGHT
 			{
-				status_led = 1;
 				env.getTemperature();
 				pressure = env.getPressure();
 				float pressure_at_alt_threshold = LAUNCH_PRESSURE_THRESHOLD_RATIO * pressure;
+
+				high_g.read(high_g_acc);
+				uint16_t resting_z_acc = high_g_acc.z;
+				
+				#if GROUND_TESTING_MODE
+				pc.putc('x');
+				transmit_var(pc,(uint32_t)pressure_at_alt_threshold);
+				pc.putc(',');
+				pc.putc('z');
+				transmit_var(pc,resting_z_acc);
+				pc.putc(',');
+				#endif 
+				
+				Timer z_acc_timer;
+				bool z_acc_detected{false};
 				
 				while(1)
 				{
-					wait_ms(10);
+					wait_ms(2);
 					// check sensors to see if rocket is now in flight
 					// check sign of z-axis acceleration - make sure it is correct!!!
 					env.getTemperature();
 					pressure = env.getPressure();
-					imu.get_accel_short(low_g_acc);
+					
 					high_g.read(high_g_acc);
-
-					//if (pressure < pressure_at_alt_threshold || low_g_acc.z > LAUNCH_Z_ACC_THRESHOLD_MPSQ || !user_button.read())
-					if (pressure < pressure_at_alt_threshold || !user_button.read())
-					{					
-						flight_state = FLIGHT;	
-						break;
+					uint16_t curr_z_acc = high_g_acc.z;
+					int z_acc_change = curr_z_acc - resting_z_acc;
+					
+					if (z_acc_change > ADXL377_Z_ACC_THRESHOLD)
+					{
+						// if threshold z-acceleration just detected, then start duration timer
+						if (!z_acc_detected)
+						{
+							z_acc_detected = true;
+							z_acc_timer.reset();
+							z_acc_timer.start();
+						}
+						// if threshold z-acceleration persists for trigger duration, then start flight
+						else if (z_acc_timer.read_ms() >= Z_ACC_TRIGGER_DURATION_MS)
+							break;
 					}
+					// if z-acceleration doesn't persist for duration, then clear polling flag
+					else
+						z_acc_detected = false;
+				
+					// if current pressure is less than pressure extrapolated for threshold altitude, then start flight
+					if (payload_button.read() // || pressure < pressure_at_alt_threshold
+						)										
+						break;
 				}
+				
+				z_acc_timer.stop();
+				flight_state = FLIGHT;
 			}
 			break;
 			case FLIGHT:
 			//	start logging data. goto LANDED if (1) sensors indicate landing or (2) second last page of memory filled
 			{
 				buzzer.turn_on();
-				time_elapsed_ms = 0;
+				status_led = 1;
+				
 				time_stamp.reset();
 				time_stamp.start();
 				
 				// activate UV LEDs and log time
 				voltage_reg_en = 1;
 				wait_ms(5);
-				for (auto & led : leds)
+				for (auto & led : uv_leds)
 					led = 1;
 				
 				update_sensor_readings();
 				data_queue.push('u');
 				push_to_queue(time_elapsed_ms);
 				data_queue.push(',');
+				
+				force_page_write();
 				
 				bool check_for_landed{false};
 				uint32_t old_pressure = pressure;
@@ -526,7 +640,7 @@ int main()
 						log_data();
 						
 						// send debugging data to PC over serial
-						#ifdef GROUND_TESTING_MODE
+						#if GROUND_TESTING_MODE
 						transmit_test_outputs();
 						#endif 
 						
@@ -536,7 +650,7 @@ int main()
 					
 					process_data_queue();
 					
-					if (check_for_landed)
+					if (check_for_landed || debug_jumper.read())
 					{
 						check_for_landed = false;
 						
@@ -548,22 +662,25 @@ int main()
 							pressure_change = old_pressure - pressure;
 						else
 							pressure_change = pressure - old_pressure;
-						if (pressure_change < LANDING_DETECTION_PRESSURE_CHANGE_THRESHOLD_PA)
-						{
-							flight_state = LANDED;
-							break;
-						}
 						
+						if (debug_jumper.read()
+							#if GROUND_TESTING_MODE == 0
+							|| pressure_change < LANDING_DETECTION_PRESSURE_CHANGE_THRESHOLD_PA
+							#endif
+							)
+							break;
+
 						old_pressure = pressure;
 					}
 				}
+				flight_state = LANDED;
 			}
 			break;
 			case LANDED:
 			// stop logging data. shutoff all UV diodes and log time of shutoff.
 			{
 				// deactivate UV LEDs
-				for (auto & led : leds)
+				for (auto & led : uv_leds)
 					led = 0;
 				voltage_reg_en = 0;
 				
@@ -577,19 +694,36 @@ int main()
 				// empty queue of any data that couldn't be stored
 				while(!data_queue.empty())
 					data_queue.pop();
-				
+
+				// leave a buffer between end of flight data and final landing data
+				force_page_write();
 				// take one final data sample and log time of UV shutoff
 				update_sensor_readings();
 				log_data(true);
 				data_queue.push('v');
 				push_to_queue(time_elapsed_ms);
-				data_queue.push(',');	
+				data_queue.push(',');
 				// push final page to memory
 				force_page_write();
 				
-				// wait until retrieval
+				// pulse buzzer until rocket is found and debug jumper is placed
+				buzzer_ticker.attach(buzzer_pulse,0.5);
+				
+				// poll debug jumper until retrieval
 				while(1)
-					wait(10);
+				{
+					wait(1);
+					// place the debug jumper to end the flight program (and stop the buzzer)
+					if (debug_jumper.read())
+						break;
+				}
+				status_led = 0;
+				buzzer_ticker.detach();
+				buzzer.turn_off();
+				// wait statement needed to ensure buzzer shutoff
+				wait(1);
+				
+				return 0;
 			}
 			break;
 			default:
