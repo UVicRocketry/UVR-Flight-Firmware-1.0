@@ -27,9 +27,6 @@ public:
 
 	/** Create a BMP280 instance
 	 *	which is connected to specified I2C pins with specified address
-	 *
-	 * @param i2c_obj I2C object (instance)
-	 * @param slave_adr (option) I2C-bus address (default: 0x77)
 	 */
 	BMP280(I2C* _i2c_p, char slave_adr = DEFAULT_SLAVE_ADDRESS);
 
