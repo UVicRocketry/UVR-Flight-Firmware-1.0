@@ -2,15 +2,13 @@
  *	UVR Payload Firmware
  *
  *	@author	 Andres Martinez
- *	@version 0.9a
- *	@date	 8-May-2017
+ *	@version 1.0-rc2
+ *	@date	 15-Jun-2017
  *
  *	Flight firmware for payload sensors and UV experiment
  *
  *	Written for UVic Rocketry
  *
- *	To-do:
- *	- Clean up global declarations.
  */
 
 #include "mbed.h"
@@ -523,8 +521,8 @@ int main()
 				high_g.read(high_g_acc);
 
 				// get LAUNCH state threshold values
-				float pressure_at_alt_threshold = LAUNCH_PRESSURE_THRESHOLD_RATIO * pressure;
-				uint16_t resting_z_acc = high_g_acc.z;
+				float pressure_at_alt_threshold{LAUNCH_PRESSURE_THRESHOLD_RATIO * pressure};
+				uint16_t resting_z_acc{high_g_acc.z};
 
 				// get initial launch pad reading for all sensors
 				log_sensor_data(true);
@@ -550,8 +548,8 @@ int main()
 					pressure = env.getPressure();
 					high_g.read(high_g_acc);
 
-					uint16_t curr_z_acc = high_g_acc.z;
-					int z_acc_change = curr_z_acc - resting_z_acc;
+					uint16_t curr_z_acc{high_g_acc.z};
+					int z_acc_change{curr_z_acc - resting_z_acc};
 
 					#if FLIGHT_DEBUG_MODE
 					transmit_test_outputs();
@@ -608,7 +606,7 @@ int main()
 				log_sensor_data(true);
 
 				bool check_for_landed{false};
-				uint32_t old_pressure = pressure;
+				uint32_t old_pressure{pressure};
 
 				Ticker pressure_check_ticker;
 				pressure_check_ticker.attach([&]()
@@ -694,52 +692,48 @@ int main()
 				while(!data_queue.empty())
 					data_queue.pop();
 
-				bool uv_shutoff_time_recorded{false};
-				auto record_uv_shutoff_time = [&]()
-				{
-					data_queue.push('v');
-					push_to_queue(uv_experiment_shutoff_time);
-					data_queue.push(',');
-					uv_shutoff_time_recorded = true;
-				};
-				if (uv_experiment_done)
-				{
-					record_uv_shutoff_time();
-					force_page_write();
-				}
-
-				// pulse buzzer until rocket is found and debug jumper is placed
+				// pulse buzzer
 				buzzer_ticker.attach(buzzer_pulse,0.5);
 
-				// poll debug jumper until retrieval
+				// poll for UV to shut-off (if it hasn't happened already), then log time of shutoff and final sensor readings
+				bool uv_shutoff_time_recorded{false};
 				while(1)
 				{
-					wait(1);
-					// place the debug jumper to end the flight program (and stop the buzzer)
-					if (debug_jumper.read())
+					update_time_elapsed();
+					bool debug_jumper_set{debug_jumper.read()};
+					// UV shutoff wait time can be bypassed by placing the debug jumper
+					if ((uv_experiment_done || debug_jumper_set) && !uv_shutoff_time_recorded)
+					{
+						// deactivate UV experiment if it wasn't already deactivated during flight
+						turn_off_uv_leds();
+						uv_experiment_ticker.detach();
+
+						// log final sensor readings
+						update_sensor_readings(true);
+						log_sensor_data(true);
+
+						// log UV shutoff time
+						data_queue.push('v');
+						push_to_queue(uv_experiment_shutoff_time);
+						data_queue.push(',');
+
+						// write final page to memory
+						force_page_write();
+
+						status_led = 0;
+						uv_shutoff_time_recorded = true;
+					}
+
+					// place debug jumper to terminate program execution
+					if (debug_jumper_set)
 						break;
+					wait_ms(100);
 				}
-				// log final sensor readings and time of recovery
-				update_sensor_readings(true);
-				log_sensor_data(true);
 
-				// deactivate UV experiment if it wasn't already deactivated during flight
-				turn_off_uv_leds();
-				uv_experiment_ticker.detach();
-				// used to ensure that uv-shutoff time is recorded in the event of premature flight termination
-				if (!uv_shutoff_time_recorded)
-					record_uv_shutoff_time();
-
-				// push final page to memory
-				force_page_write();
-
-				status_led = 0;
 				buzzer_ticker.detach();
 				buzzer.turn_off();
-
-				// wait statement needed to ensure buzzer shutoff
+				// wait statement to ensure that buzzer actually shuts off
 				wait(1);
-
 				return 0;
 			}
 			break;
