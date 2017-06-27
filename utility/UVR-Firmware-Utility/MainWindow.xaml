@@ -1,0 +1,99 @@
+﻿<Window
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:UVR_Firmware_Utility"
+        xmlns:System="clr-namespace:System;assembly=mscorlib" x:Name="window" x:Class="UVR_Firmware_Utility.MainWindow"
+        mc:Ignorable="d"
+        Title="UVR Firmware Utility" Height="420" Width="800" Icon="cropped-UVR-Logo.ico" ResizeMode="CanMinimize" SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen">
+	<Window.Resources>
+		<System:Double x:Key="foooo">100</System:Double>
+	</Window.Resources>
+	<Grid Background="White" OpacityMask="Black" Margin="0,0,4,0" Width="800" Height="400">
+		<Grid.ColumnDefinitions>
+			<ColumnDefinition/>
+		</Grid.ColumnDefinitions>
+		<Button x:Name="buttonConnect" Content="Connect" HorizontalAlignment="Left" Margin="15,322,0,0" VerticalAlignment="Top" Width="75" Click="buttonConnect_Click" IsEnabled="False"/>
+		<ComboBox x:Name="comboBoxPorts" HorizontalAlignment="Left" Margin="15,289,0,0" VerticalAlignment="Top" Width="75" SelectionChanged="comboBoxPorts_SelectionChanged"/>
+		<Button x:Name="buttonDisconnect" Content="Disconnect" HorizontalAlignment="Left" Margin="15,347,0,0" VerticalAlignment="Top" Width="75" Click="buttonDisconnect_Click" IsEnabled="False"/>
+		<Label x:Name="label" Content="Yaw (°)" HorizontalAlignment="Left" Margin="75,25,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label1" Content="Roll (°)" HorizontalAlignment="Left" Margin="75,71,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label2" Content="Pitch (°)" HorizontalAlignment="Left" Margin="75,117,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockEY" HorizontalAlignment="Left" Margin="75,53,0,0" TextWrapping="Wrap" Text="{Binding Yaw, ElementName=window, StringFormat=F}" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockER" HorizontalAlignment="Left" Margin="75,99,0,0" TextWrapping="Wrap" Text="{Binding Roll, ElementName=window, StringFormat=F}" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockEP" HorizontalAlignment="Left" Margin="75,145,0,0" TextWrapping="Wrap" Text="{Binding Pitch, ElementName=window, StringFormat=F}" VerticalAlignment="Top"/>
+		<Label x:Name="label3" Content="Quat W" HorizontalAlignment="Left" Margin="16,25,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockQW" HorizontalAlignment="Left" Margin="16,53,0,0" TextWrapping="Wrap" Text="{Binding Q_w, ElementName=window}" VerticalAlignment="Top"/>
+		<Label x:Name="label4" Content="Quat X" HorizontalAlignment="Left" Margin="16,71,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockQX" HorizontalAlignment="Left" Margin="16,99,0,0" TextWrapping="Wrap" Text="{Binding Q_x, ElementName=window}" VerticalAlignment="Top"/>
+		<Label x:Name="label5" Content="Quat Y" HorizontalAlignment="Left" Margin="16,117,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockQY" HorizontalAlignment="Left" Margin="16,145,0,0" TextWrapping="Wrap" Text="{Binding Q_y, ElementName=window}" VerticalAlignment="Top"/>
+		<Label x:Name="label6" Content="Quat Z" HorizontalAlignment="Left" Margin="16,163,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockQZ" HorizontalAlignment="Left" Margin="16,191,0,0" TextWrapping="Wrap" Text="{Binding Q_z, ElementName=window}" VerticalAlignment="Top"/>
+		<Label x:Name="label7" Content="COM port" HorizontalAlignment="Left" Margin="15,269,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label8" Content="Bytes to read" HorizontalAlignment="Left" Margin="105,269,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockBtr" HorizontalAlignment="Left" Margin="105,292,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Btr, ElementName=window}"/>
+		<Label x:Name="label_Copy1" Content="Acc. X (m/s^2)" HorizontalAlignment="Left" Margin="130,25,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label1_Copy1" Content="Acc. Y (m/s^2)" HorizontalAlignment="Left" Margin="130,71,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label2_Copy1" Content="Acc. Z (m/s^2)" HorizontalAlignment="Left" Margin="130,117,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockAX" HorizontalAlignment="Left" Margin="130,53,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding A_x, ElementName=window, StringFormat=F}"/>
+		<TextBlock x:Name="textBlockAY" HorizontalAlignment="Left" Margin="130,99,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding A_y, ElementName=window, StringFormat=F}"/>
+		<TextBlock x:Name="textBlockAZ" HorizontalAlignment="Left" Margin="130,145,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding A_z, ElementName=window, StringFormat=F}"/>
+		<Slider x:Name="sliderAX" HorizontalAlignment="Left" Margin="228,41,0,0" VerticalAlignment="Top" Width="155" Maximum="157" Minimum="-157" Value="{Binding A_x, ElementName=window}" IsEnabled="False" Cursor="Arrow" TickPlacement="BottomRight" SmallChange="1" TickFrequency="9.81" LargeChange="9.81"/>
+		<Slider x:Name="sliderAY" HorizontalAlignment="Left" Margin="228,87,0,0" VerticalAlignment="Top" Width="155" Maximum="157" Minimum="-157" IsEnabled="False" Cursor="Arrow" TickPlacement="BottomRight" SmallChange="1" Value="{Binding A_y, ElementName=window}" TickFrequency="9.81" LargeChange="9.81"/>
+		<Slider x:Name="sliderAZ" HorizontalAlignment="Left" Margin="228,133,0,0" VerticalAlignment="Top" Width="155" Maximum="157" Minimum="-157" IsEnabled="False" Cursor="Arrow" TickPlacement="BottomRight" SmallChange="1" Value="{Binding A_z, ElementName=window}" TickFrequency="9.81" LargeChange="9.81"/>
+		<Label x:Name="label_Copy" Content="Temp. (deg C)" HorizontalAlignment="Left" Margin="681,25,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label1_Copy" Content="Pressure (Pa)" HorizontalAlignment="Left" Margin="681,71,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockTemp" HorizontalAlignment="Left" Margin="681,53,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Temp, ElementName=window, StringFormat=F}"/>
+		<TextBlock x:Name="textBlockPres" HorizontalAlignment="Left" Margin="681,99,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Pres, ElementName=window}"/>
+		<Label x:Name="label8_Copy" Content="Frame errors" HorizontalAlignment="Left" Margin="105,314,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockErrCount" HorizontalAlignment="Left" Margin="105,337,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Err_count, ElementName=window}"/>
+		<Label x:Name="label_Copy2" Content="Hi-Acc. X (g)" HorizontalAlignment="Left" Margin="406,25,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label1_Copy2" Content="Hi-Acc. Y (g)" HorizontalAlignment="Left" Margin="406,71,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label2_Copy" Content="Hi-Acc. Z (g)" HorizontalAlignment="Left" Margin="406,117,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockHX" HorizontalAlignment="Left" Margin="406,53,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding H_x, ElementName=window, StringFormat=F}"/>
+		<TextBlock x:Name="textBlockHY" HorizontalAlignment="Left" Margin="406,99,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding H_y, ElementName=window, StringFormat=F}"/>
+		<TextBlock x:Name="textBlockHZ" HorizontalAlignment="Left" Margin="406,145,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding H_z, ElementName=window, StringFormat=F}"/>
+		<Slider x:Name="sliderHX" HorizontalAlignment="Left" Margin="500,41,0,0" VerticalAlignment="Top" Width="155" Maximum="200" IsEnabled="False" Cursor="Arrow" TickPlacement="BottomRight" SmallChange="1" LargeChange="10" Value="{Binding H_x, ElementName=window}" Minimum="-200" TickFrequency="10"/>
+		<Slider x:Name="sliderHY" HorizontalAlignment="Left" Margin="500,87,0,0" VerticalAlignment="Top" Width="155" Maximum="200" IsEnabled="False" Cursor="Arrow" TickPlacement="BottomRight" SmallChange="1" LargeChange="10" Value="{Binding H_y, ElementName=window}" Minimum="-200" TickFrequency="10"/>
+		<Slider x:Name="sliderHZ" HorizontalAlignment="Left" Margin="500,133,0,0" VerticalAlignment="Top" Width="155" Maximum="200" IsEnabled="False" Cursor="Arrow" TickPlacement="BottomRight" SmallChange="1" LargeChange="10" Value="{Binding H_z, ElementName=window}" Minimum="-200" TickFrequency="10"/>
+		<Label x:Name="label1_Copy3" Content="Rel. Altitude (m)" HorizontalAlignment="Left" Margin="681,118,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockRelAlt" HorizontalAlignment="Left" Margin="681,146,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Rel_Alt, ElementName=window, StringFormat=F}"/>
+		<Button x:Name="buttonRelPres" Content="Set. Ref. Altitude" HorizontalAlignment="Left" Margin="681,209,0,0" VerticalAlignment="Top" Width="102" Click="buttonRelPres_Click" IsEnabled="False"/>
+		<Label x:Name="label2_Copy2" Content="Acc. net (m/s^2)" HorizontalAlignment="Left" Margin="130,163,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockANet" HorizontalAlignment="Left" Margin="130,191,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding A_net, ElementName=window, StringFormat=F}"/>
+		<Label x:Name="label2_Copy3" Content="LPT Z-Acc (g)" HorizontalAlignment="Left" Margin="406,163,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockLPZ" HorizontalAlignment="Left" Margin="406,191,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding H_LPZ, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+		<ProgressBar x:Name="ProgressBytesPushed" HorizontalAlignment="Left" Height="20" Margin="522,289,0,0" VerticalAlignment="Top" Width="155" Maximum="65536" Value="{Binding Bytes_written, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+		<ProgressBar x:Name="ProgressDownload" HorizontalAlignment="Left" Height="20" Margin="522,337,0,0" VerticalAlignment="Top" Width="155" Value="{Binding Bytes_downloaded, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}" Maximum="16777216"/>
+		<Label x:Name="label9" Content="Pages written" HorizontalAlignment="Left" Margin="522,269,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.526,0.043"/>
+		<Label x:Name="label10" Content="Bytes downloaded" HorizontalAlignment="Left" Margin="522,314,0,0" VerticalAlignment="Top"/>
+		<Button x:Name="buttonDownload" Content="Download flight data" HorizontalAlignment="Left" Margin="522,362,0,0" VerticalAlignment="Top" Width="118" Click="buttonDownload_Click" IsEnabled="False"/>
+		<TextBlock x:Name="textBlockBytesDownloaded" HorizontalAlignment="Left" Margin="682,337,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Bytes_downloaded, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}" Width="45"/>
+		<TextBlock x:Name="textBlockBytesPushed" HorizontalAlignment="Left" Margin="682,292,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Bytes_written, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}" Width="35"/>
+		<Label x:Name="label8_Copy1" Content="Time elapsed (ms)" HorizontalAlignment="Left" Margin="228,269,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockTime_ms" HorizontalAlignment="Left" Margin="228,292,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Time_elapsed, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+		<Label x:Name="label8_Copy2" Content="Sampling interval (ms)" HorizontalAlignment="Left" Margin="228,314,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockTime_ms_Copy" HorizontalAlignment="Left" Margin="228,337,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Time_between_measurements, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+		<Label x:Name="label8_Copy3" Content="Sensor read time (us)" HorizontalAlignment="Left" Margin="360,269,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockDelay_ms" HorizontalAlignment="Left" Margin="360,292,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding Sensor_delay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+		<Label x:Name="label1_Copy4" Content="LPT pressure (Pa)" HorizontalAlignment="Left" Margin="681,163,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockLPP" HorizontalAlignment="Left" Margin="681,191,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding LP_Pres, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+		<Label x:Name="label8_Copy4" Content="Data queue size (bytes)" HorizontalAlignment="Left" Margin="360,314,0,0" VerticalAlignment="Top"/>
+		<TextBlock x:Name="textBlockDQS" HorizontalAlignment="Left" Margin="360,337,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Text="{Binding DQ_Size, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:MainWindow}}}"/>
+		<Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Right" Height="215" Margin="0,24,409,0" VerticalAlignment="Top" Width="383"/>
+		<Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="215" Margin="396,24,0,0" VerticalAlignment="Top" Width="269"/>
+		<Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="215" Margin="670,24,0,0" VerticalAlignment="Top" Width="120"/>
+		<Label x:Name="label11" Content="BNO055" HorizontalAlignment="Left" Margin="16,2,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label12" Content="AXDL377" HorizontalAlignment="Left" Margin="406,2,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label13" Content="BMP280" HorizontalAlignment="Left" Margin="681,2,0,0" VerticalAlignment="Top"/>
+		<Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="121" Margin="8,269,0,0" VerticalAlignment="Top" Width="201"/>
+		<Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="121" Margin="214,269,0,0" VerticalAlignment="Top" Width="291"/>
+		<Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Left" Height="121" Margin="510,269,0,0" VerticalAlignment="Top" Width="280"/>
+		<Label x:Name="label14" Content="Serial port" HorizontalAlignment="Left" Margin="15,246,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label15" Content="Data sampling" HorizontalAlignment="Left" Margin="228,246,0,0" VerticalAlignment="Top"/>
+		<Label x:Name="label16" Content="Flash memory" HorizontalAlignment="Left" Margin="522,246,0,0" VerticalAlignment="Top"/>
+
+	</Grid>
+</Window>
