@@ -39,3 +39,6 @@ Compile .bin from source. Flash the .bin to the NUCLEO using ST-Link. Power-up w
 ### GUI Utility
 
 Compile .exe from source. Connect NUCLEO via USB and power-up with debug jumper inserted.
+
+## License
+GNU LGPL 3.0
