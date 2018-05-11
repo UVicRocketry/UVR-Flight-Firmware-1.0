@@ -39,7 +39,7 @@ VPATH = ..
 ###############################################################################
 # Project settings
 
-PROJECT := UVR-Payload-Firmware
+PROJECT := UVR-Flight-Firmware
 
 
 # Project settings
