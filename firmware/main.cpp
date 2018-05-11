@@ -2,8 +2,8 @@
  *	UVR Payload Firmware
  *
  *	@author	 Andres Martinez
- *	@version 1.0-rc2
- *	@date	 15-Jun-2017
+ *	@version 1.1
+ *	@date	 10-May-2018
  *
  *	Flight firmware for payload sensors and UV experiment
  *
@@ -21,24 +21,24 @@
 #include <queue>
 #include <array>
 
-// Enable little-endian flash memory storage here with 1, otherwise 0 for big-endian
-#define LITTLE_ENDIAN_STORAGE 1
-// Enable FLIGHT debug mode here with 1, otherwise 0 for competition FLIGHT mode
-#define FLIGHT_DEBUG_MODE 0
-// Enable BNO055 fusion sensor with 1, otherwise 0
-#define BNO055_ENABLED 0
+// Enable little-endian flash memory storage
+#define LITTLE_ENDIAN_STORAGE
+// Enable FLIGHT debug mode
+//#define FLIGHT_DEBUG_MODE
+// Enable BNO055 fusion sensor
+//#define BNO055_ENABLED
 
 // amount of time that magnetic field must be detected before IDLE->PAD state transition is triggered
-constexpr int HALL_EFFECT_TRIGGER_DURATION_MS{500};
+constexpr int32_t HALL_EFFECT_TRIGGER_DURATION_MS{500};
 
 // amount of g-force required to trigger PAD->FLIGHT state transition
 constexpr float LAUNCH_G_FORCE_THRESHOLD{3.0};
 // amount of time that positive g-force must be sustained before FLIGHT state is triggered
-constexpr int Z_ACC_TRIGGER_DURATION_MS{20};
+constexpr int32_t Z_ACC_TRIGGER_DURATION_MS{20};
 // ratio of NUCLEO analog input readings to ADXL377 g-force reading
 constexpr float ADXL377_INT_PER_G{65535.0/400.0};
 // NUCELO analog input reading change corresponding to required g-force change for FLIGHT state triggering
-constexpr int ADXL377_Z_ACC_THRESHOLD{(int)(ADXL377_INT_PER_G * LAUNCH_G_FORCE_THRESHOLD)};
+constexpr int32_t ADXL377_Z_ACC_THRESHOLD{(int32_t)(ADXL377_INT_PER_G * LAUNCH_G_FORCE_THRESHOLD)};
 
 // multiply this value by the referene pressurce to get the pressure at the alititude threashold
 // altitude threshold is currently calculated for ***20 meters***
@@ -52,7 +52,7 @@ constexpr uint32_t LANDING_DETECTION_PRESSURE_CHANGE_THRESHOLD_PA{50};
 Serial pc(USBTX, USBRX,115200);
 
 // UV led array
-std::array<DigitalOut,3> uv_leds{DigitalOut(PB_3),DigitalOut(PB_4),DigitalOut(PB_10)};
+std::array<PwmDriver,3> uv_leds{PwmDriver(PB_3),PwmDriver(PB_4),PwmDriver(PB_10)};
 constexpr float PAYLOAD_EXPERIMENT_RUMTINE_SECONDS{600.0};
 bool uv_experiment_done{false};
 uint32_t uv_experiment_shutoff_time{0};
@@ -70,9 +70,9 @@ ADXL377 high_g(PA_0,PA_1,PA_4);
 ADXL377_readings high_g_acc;
 
 // BNO055 16g accelerometer and orientation sensor
-#if BNO055_ENABLED
+#ifdef BNO055_ENABLED
 BNO055 imu(i2c_p,NC);
-constexpr int BNO055_MOUNTING_POSITION{MT_P0};
+constexpr int32_t BNO055_MOUNTING_POSITION{MT_P0};
 BNO055_QUATERNION quaternion;
 BNO055_ACC_short low_g_acc;
 #endif
@@ -115,18 +115,18 @@ bool is_sending_data_to_pc{false};
 template <typename T> void transmit_var(Serial &pc, const T& d)
 {
 	char byte_size = sizeof(d);
-	for (int i = 0; i < byte_size; ++i)
+	for (int32_t i = 0; i < byte_size; ++i)
 		pc.putc((d & ( 0xFF << i*8)) >> i*8);
 }
 
 // push a variable to the data queue as a series of bytes (endianess set by LITTLE_ENDIAN_STORAGE 0 or 1)
 template <typename T> void push_to_queue(const T& d)
 {
-	int byte_size = sizeof(d);
-	#if LITTLE_ENDIAN_STORAGE
-	for (int i = 0; i < byte_size; ++i)
+	int32_t byte_size = sizeof(d);
+	#ifdef LITTLE_ENDIAN_STORAGE
+	for (int32_t i = 0; i < byte_size; ++i)
 	#else
-	for (int i = byte_size - 1; i >= 0; i--)
+	for (int32_t i = byte_size - 1; i >= 0; i--)
 	#endif
 		data_queue.push((d & ( 0xFF << i*8)) >> i*8);
 }
@@ -172,7 +172,7 @@ bool force_page_write()
 }
 
 // send raw contents of W25Q128 flash memory to PC over serial
-void transmit_recorded_data(unsigned int num_pages = W25Q128::MAX_PAGES)
+void transmit_recorded_data(uint32_t num_pages = W25Q128::MAX_PAGES)
 {
 	// signal pc that board is now uploading contents
 	pc.putc('d');
@@ -182,7 +182,7 @@ void transmit_recorded_data(unsigned int num_pages = W25Q128::MAX_PAGES)
 
 	page p;
 
-	for (unsigned int i = 0; i < num_pages; ++i)
+	for (uint32_t i = 0; i < num_pages; ++i)
 	{
 		if (!is_sending_data_to_pc)
 			break;
@@ -258,7 +258,7 @@ void log_sensor_data(bool include_env_log = false)
 	data_queue.push(data_header);
 	push_to_queue(time_elapsed_ms);
 
-	#if BNO055_ENABLED
+	#ifdef BNO055_ENABLED
 	push_to_queue(low_g_acc.x);
 	push_to_queue(low_g_acc.y);
 	push_to_queue(low_g_acc.z);
@@ -293,7 +293,7 @@ void update_sensor_readings(bool include_env_sensors = false)
 	// update 200g accelerometer reading
 	high_g.read(high_g_acc);
 
-	#if BNO055_ENABLED
+	#ifdef BNO055_ENABLED
 	// get BNO055 16-g and orientation readings
 	imu.get_quaternion(quaternion);
 	imu.get_accel_short(low_g_acc);
@@ -315,7 +315,7 @@ void transmit_test_outputs()
 	transmit_var(pc,time_elapsed_ms);
 	pc.putc(',');
 
-	#if BNO055_ENABLED
+	#ifdef BNO055_ENABLED
 	// transmit l6-g accelerometer readings
 	pc.putc('a');
 	transmit_var(pc,low_g_acc.x);
@@ -385,12 +385,18 @@ int main()
 		buzzer_on = !buzzer_on;
 	};
 
+	// set UV led duty cycles
+	for (auto & led : uv_leds)
+	{
+		led.turn_off();
+		led.set_duty(0.5);
+	}
 	// set UV leds to off
 	Ticker uv_experiment_ticker;
 	auto turn_off_uv_leds = [&]()
 	{
 		for (auto & led : uv_leds)
-			led = 0;
+			led.turn_off();
 		voltage_reg_en = 0;
 
 		if (!uv_experiment_done)
@@ -407,7 +413,7 @@ int main()
 
 	env.initialize();
 
-	#if BNO055_ENABLED
+	#ifdef BNO055_ENABLED
 	imu.set_mounting_position(BNO055_MOUNTING_POSITION);
 	#endif
 
@@ -528,7 +534,7 @@ int main()
 				log_sensor_data(true);
 				force_page_write();
 
-				#if FLIGHT_DEBUG_MODE
+				#ifdef FLIGHT_DEBUG_MODE
 				pc.putc('x');
 				transmit_var(pc,(uint32_t)pressure_at_alt_threshold);
 				pc.putc(',');
@@ -549,9 +555,9 @@ int main()
 					high_g.read(high_g_acc);
 
 					uint16_t curr_z_acc{high_g_acc.z};
-					int z_acc_change{curr_z_acc - resting_z_acc};
+					int32_t z_acc_change{curr_z_acc - resting_z_acc};
 
-					#if FLIGHT_DEBUG_MODE
+					#ifdef FLIGHT_DEBUG_MODE
 					transmit_test_outputs();
 					#endif
 
@@ -594,7 +600,7 @@ int main()
 				voltage_reg_en = 1;
 				wait_ms(5);
 				for (auto & led : uv_leds)
-					led = 1;
+					led.turn_on();
 				// start UV experiment shutoff countdown
 				uv_experiment_ticker.attach(turn_off_uv_leds,PAYLOAD_EXPERIMENT_RUMTINE_SECONDS);
 
@@ -638,7 +644,7 @@ int main()
 						log_sensor_data(get_env_data);
 
 						// send debugging data to PC over serial
-						#if FLIGHT_DEBUG_MODE
+						#ifdef FLIGHT_DEBUG_MODE
 						transmit_test_outputs();
 						#endif
 
@@ -693,14 +699,14 @@ int main()
 					data_queue.pop();
 
 				// pulse buzzer
-				buzzer_ticker.attach(buzzer_pulse,0.5);
+				buzzer_ticker.attach(buzzer_pulse,1.0);
 
 				// poll for UV to shut-off (if it hasn't happened already), then log time of shutoff and final sensor readings
 				bool uv_shutoff_time_recorded{false};
 				while(1)
 				{
 					update_time_elapsed();
-					bool debug_jumper_set{debug_jumper.read()};
+					bool debug_jumper_set{(bool)debug_jumper.read()};
 					// UV shutoff wait time can be bypassed by placing the debug jumper
 					if ((uv_experiment_done || debug_jumper_set) && !uv_shutoff_time_recorded)
 					{

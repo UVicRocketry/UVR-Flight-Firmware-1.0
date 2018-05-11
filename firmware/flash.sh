@@ -1,0 +1,1 @@
+sudo st-flash write BUILD/UVR-Flight-Firmware.bin 0x8000000

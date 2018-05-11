@@ -1,6 +1,6 @@
 # UVR-Flight-Firmware
 
-STM32 based system for flight data recording and UV-sterilization experiment. Used in UVic Rocketry's custom flight hardware at IREC 2017.
+STM32 based system for flight data recording and UV-sterilization experiment. Used in UVic Rocketry's custom flight hardware at IREC 2017/18.
 
 ## Overview
 This software is written for the STM32 NUCLEO-L053R8. The NUCLEO interfaces with a custom PCB containing sensor, data-logging, and control hardware. 
