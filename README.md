@@ -7,10 +7,11 @@ This software is written for the STM32 NUCLEO-L053R8. The NUCLEO interfaces with
 
 ![alt text](http://i.imgur.com/UvqYlsa.jpg)
 
-### Sensor hardware
+### Peripheral hardware
 * BMP280 temperature + pressure sensor
-* BNO055 low-G accelerometer + orientation sensor
+* BNO055 low-G accelerometer + orientation fusion sensor
 * ADXL377 high-G accelerometer
+* W25Q128FV flash memory module
 
 ### Firmware
 The hardware control follows a basic state machine model:
