@@ -26,7 +26,7 @@
 // Enable FLIGHT debug mode
 //#define FLIGHT_DEBUG_MODE
 // Enable BNO055 fusion sensor
-//#define BNO055_ENABLED
+#define BNO055_ENABLED
 
 // amount of time that magnetic field must be detected before IDLE->PAD state transition is triggered
 constexpr int32_t HALL_EFFECT_TRIGGER_DURATION_MS{500};

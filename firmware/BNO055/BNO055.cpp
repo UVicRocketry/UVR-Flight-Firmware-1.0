@@ -7,7 +7,9 @@ BNO055::BNO055 (I2C* _i2c_p, PinName p_interrupt, uint8_t addr, uint8_t mode) :
 {
 	chip_addr = addr;
 	chip_mode = mode;
+	wait_ms(800);
 	initialize ();
+	wait_ms(10);	
 }
 
 /*
