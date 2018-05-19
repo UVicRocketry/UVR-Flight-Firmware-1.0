@@ -86,6 +86,11 @@ DigitalOut status_led(PB_0);
 // UV diode voltage-regulator ENABLE signal
 DigitalOut voltage_reg_en(PA_10);
 
+// Screw terminal port for PAD-activated external peripherals
+DigitalOut external_out_pad(PC_0);
+// Screw terminal port for LAUNCH-activated external peripherals
+DigitalOut external_out_launch(PC_1);
+
 // Debug mode jumper (can also be used to trigger FLIGHT->LANDED state transition)
 DigitalIn debug_jumper(PA_8);
 
@@ -546,6 +551,9 @@ int main()
 				Timer z_acc_timer;
 				bool z_acc_detected{false};
 
+				// turn on PAD-activated external devices
+				external_out_pad = 1;
+
 				while(1)
 				{
 					wait_ms(2);
@@ -598,6 +606,10 @@ int main()
 
 				// activate UV LEDs
 				voltage_reg_en = 1;
+
+				// turn on LAUNCH-activated external devices
+				external_out_launch = 1;
+
 				wait_ms(5);
 				for (auto & led : uv_leds)
 					led.turn_on();
@@ -687,6 +699,10 @@ int main()
 			case LANDED:
 			// stop logging data. clear data queue. wait for deactivation via placement of debug jumper. log final sensor readings.
 			{
+				// turn off PAD and LAUNCH-activated external devices
+				external_out_pad = 0;
+				external_out_launch = 0;
+
 				// turn off automatic data sampling
 				ticker_100_Hz.detach();
 
