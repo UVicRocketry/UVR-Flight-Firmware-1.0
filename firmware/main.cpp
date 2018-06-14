@@ -53,7 +53,7 @@ Serial pc(USBTX, USBRX,115200);
 
 // UV led array
 std::array<PwmDriver,3> uv_leds{PwmDriver(PB_3),PwmDriver(PB_4),PwmDriver(PB_10)};
-constexpr float PAYLOAD_EXPERIMENT_RUMTINE_SECONDS{600.0};
+constexpr float PAYLOAD_EXPERIMENT_RUMTINE_SECONDS{1200.0};
 bool uv_experiment_done{false};
 uint32_t uv_experiment_shutoff_time{0};
 
